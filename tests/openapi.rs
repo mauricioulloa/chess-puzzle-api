@@ -93,11 +93,24 @@ fn error_responses_are_documented_for_every_route() {
             continue; // deliberately outside the rate limiter
         }
         let responses = &item["get"]["responses"];
-        for status in ["400", "401", "429"] {
+
+        // Everything behind the limiter can be throttled, and can be called
+        // with a bad key.
+        for status in ["401", "429"] {
             assert!(
                 !responses[status].is_null(),
                 "{route} does not document a {status}"
             );
         }
+
+        // A 400 is only reachable where there is something to get wrong.
+        // /v1/usage, /v1/themes and /v1/stats take no parameters, so claiming
+        // they can reject one would be documenting a lie.
+        let takes_parameters = !item["get"]["parameters"].is_null();
+        assert_eq!(
+            !responses["400"].is_null(),
+            takes_parameters,
+            "{route}: a 400 should be documented exactly when the route takes parameters"
+        );
     }
 }

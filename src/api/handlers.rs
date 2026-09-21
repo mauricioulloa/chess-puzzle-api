@@ -416,7 +416,6 @@ pub async fn solution(
     tag = "reference",
     responses(
         (status = 200, description = "Every theme, with how many puzzles carry it", body = ThemesResponse),
-        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
         (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
     )
@@ -445,7 +444,6 @@ pub async fn themes(State(sampler): State<SharedState>) -> Json<ThemesResponse> 
     tag = "reference",
     responses(
         (status = 200, description = "Dataset size, rating distribution and provenance", body = StatsResponse),
-        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
         (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
     )
@@ -592,6 +590,7 @@ fn tallies(
     tag = "reference",
     responses(
         (status = 200, description = "Aggregate usage over the last 30 days", body = UsageResponse),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
     )
 )]

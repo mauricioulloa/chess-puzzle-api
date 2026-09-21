@@ -346,16 +346,6 @@
               }
             }
           },
-          "400": {
-            "description": "A parameter was invalid or unrecognised",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
           "401": {
             "description": "The API key is unknown or revoked",
             "content": {
@@ -396,16 +386,6 @@
               }
             }
           },
-          "400": {
-            "description": "A parameter was invalid or unrecognised",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
           "401": {
             "description": "The API key is unknown or revoked",
             "content": {
@@ -442,6 +422,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
