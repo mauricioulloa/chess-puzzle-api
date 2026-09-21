@@ -125,7 +125,36 @@ async fn maintenance(auth: Arc<AuthState>, store: Arc<KeyStore>) {
     }
 }
 
+/// Waits for either interactive interruption or the signal an orchestrator
+/// actually sends. Listening only for SIGINT would mean every container
+/// restart and every deploy killed the process outright, discarding whatever
+/// usage had accumulated since the last flush.
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-    tracing::info!("shutting down");
+    let interrupt = async {
+        let _ = tokio::signal::ctrl_c().await;
+        "SIGINT"
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+                "SIGTERM"
+            }
+            Err(err) => {
+                tracing::warn!("cannot listen for SIGTERM: {err}");
+                std::future::pending().await
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<&str>();
+
+    let signal = tokio::select! {
+        signal = interrupt => signal,
+        signal = terminate => signal,
+    };
+    tracing::info!("received {signal}, shutting down");
 }
