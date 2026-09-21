@@ -143,6 +143,10 @@ cargo test && cargo clippy --all-targets
 Tests run against a small committed CSV fixture: no network, no 250 MB
 download.
 
+`scripts/verify_production.py` checks a running deployment end to end — it
+re-derives every chess claim with python-chess, a separate implementation, so
+agreement between the two means something.
+
 ## Feedback
 
 This is early. If something is missing, awkward, or wrong — a filter you
