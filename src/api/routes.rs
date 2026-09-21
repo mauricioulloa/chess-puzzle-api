@@ -23,10 +23,21 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
         .route("/v1/themes", get(handlers::themes))
         .route("/v1/stats", get(handlers::stats))
         .route_layer(axum::middleware::from_fn_with_state(
-            auth,
+            Arc::clone(&auth),
             middleware::enforce,
         ))
         .with_state(Arc::clone(&state));
+
+    // The usage report reads api.db rather than the puzzle database, so it
+    // carries its own state. It stays under the limiter: public does not mean
+    // free to hammer.
+    let usage = Router::new()
+        .route("/v1/usage", get(handlers::usage))
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&auth),
+            middleware::enforce,
+        ))
+        .with_state(Arc::clone(&auth.store));
 
     // Health checks are what a host polls to decide whether to keep the
     // process alive. Rate limiting them would make a busy minute look like an
@@ -41,7 +52,8 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
         .route("/docs", get(handlers::docs))
         .with_state(state);
 
-    api.merge(public)
+    api.merge(usage)
+        .merge(public)
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(cors)

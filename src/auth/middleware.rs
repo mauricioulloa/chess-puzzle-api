@@ -8,6 +8,7 @@
 use crate::api::errors::ApiError;
 use crate::auth::keys::KeyStore;
 use crate::auth::ratelimit::{Decision, RateLimiter, Subject};
+use crate::usage::{Collector, FilterSample};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::HeaderValue;
 use axum::middleware::Next;
@@ -21,6 +22,9 @@ pub struct AuthState {
     pub limiter: Arc<RateLimiter>,
     /// Buffered request counts, flushed to disk on a timer.
     pub usage: Mutex<HashMap<i64, u64>>,
+    /// Aggregate counters. Separate from `usage` above, which is per-key
+    /// and private; these are the ones the public endpoint serves.
+    pub stats: Arc<Collector>,
     pub anonymous_limit: u32,
     /// Whether `X-Forwarded-For` may be believed. Off by default: trusting it
     /// when nothing strips it lets anyone reset their own rate limit by
@@ -115,6 +119,14 @@ pub async fn enforce(State(auth): State<Arc<AuthState>>, request: Request, next:
         }
         .into_response();
         apply_headers(&mut response, decision, key_id.is_some());
+        // A throttled request is still traffic worth seeing in the numbers.
+        let endpoint = request
+            .extensions()
+            .get::<axum::extract::MatchedPath>()
+            .map(|matched| matched.as_str().to_string())
+            .unwrap_or_else(|| request.uri().path().to_string());
+        auth.stats
+            .record_request(&endpoint, response.status().as_u16(), key_id.is_some());
         return response;
     }
 
@@ -122,7 +134,23 @@ pub async fn enforce(State(auth): State<Arc<AuthState>>, request: Request, next:
         auth.record(id);
     }
 
+    // MatchedPath is the route template, not the concrete URL, so the
+    // counters never accumulate a row per puzzle id.
+    let endpoint = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|matched| matched.as_str().to_string())
+        .unwrap_or_else(|| request.uri().path().to_string());
+
     let mut response = next.run(request).await;
     apply_headers(&mut response, decision, key_id.is_some());
+
+    auth.stats
+        .record_request(&endpoint, response.status().as_u16(), key_id.is_some());
+    // Handlers that take filters describe them through the response, so each
+    // one does not need its own path to the collector.
+    if let Some(sample) = response.extensions().get::<FilterSample>() {
+        auth.stats.record_filters(sample);
+    }
     response
 }

@@ -1,6 +1,7 @@
 use crate::api::errors::{ApiError, ApiResult, ErrorBody};
 use crate::api::models::*;
 use crate::api::query::{PuzzleFilter, RATING_CEILING, RATING_FLOOR, Sampler, ThemesMode};
+use crate::usage::{self, FilterSample};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
@@ -220,6 +221,51 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
     })
 }
 
+/// Describes what a caller asked for, in canonical theme names so the
+/// counters are not split across spellings. Never records anything about
+/// *who* asked.
+fn filter_sample(sampler: &Sampler, params: &RandomParams, filter: &PuzzleFilter) -> FilterSample {
+    let names = |ids: &[i64]| -> Vec<String> {
+        ids.iter()
+            .filter_map(|id| {
+                sampler
+                    .catalog
+                    .all()
+                    .iter()
+                    .find(|theme| theme.id == *id)
+                    .map(|theme| theme.name.clone())
+            })
+            .collect()
+    };
+
+    let mut options = Vec::new();
+    if params.count.is_some() {
+        options.push("batch");
+    }
+    if params.board.unwrap_or(false) {
+        options.push("board");
+    }
+    if filter.mode == ThemesMode::Any {
+        options.push("themesModeAny");
+    }
+    if !filter.opening_ids.is_empty() {
+        options.push("opening");
+    }
+    if filter.include.is_empty() && filter.exclude.is_empty() && filter.rating_min.is_none() {
+        options.push("unfiltered");
+    }
+
+    FilterSample {
+        themes: names(&filter.include),
+        excluded_themes: names(&filter.exclude),
+        rating_band: filter
+            .rating_min
+            .zip(filter.rating_max)
+            .map(|(min, max)| usage::rating_band((min + max) / 2)),
+        options,
+    }
+}
+
 fn describe(filter: &PuzzleFilter) -> String {
     let mut parts = Vec::new();
     if let (Some(min), Some(max)) = (filter.rating_min, filter.rating_max) {
@@ -273,11 +319,17 @@ pub async fn random(
         blocking(move || sampler.random(&filter, count)).await?
     };
 
+    // A search that finds nothing still says what someone wanted, and that is
+    // the most useful signal the counters carry: it shows where demand runs
+    // past what the dataset holds. So the sample is attached to the 404 too,
+    // which means building that response here rather than returning Err.
+    let sample = filter_sample(&sampler, &params, &filter);
+
     if rows.is_empty() {
-        return Err(ApiError::NoMatch(format!(
-            "No puzzle matches {}.",
-            describe(&filter)
-        )));
+        let mut response =
+            ApiError::NoMatch(format!("No puzzle matches {}.", describe(&filter))).into_response();
+        response.extensions_mut().insert(sample);
+        return Ok(response);
     }
 
     let puzzles: Vec<PuzzleResponse> = rows
@@ -287,7 +339,7 @@ pub async fn random(
 
     // A bare object when one puzzle was asked for, a batch envelope when
     // `count` was given, so each spelling has one stable shape.
-    Ok(if batched {
+    let mut response = if batched {
         Json(PuzzleBatch {
             count: puzzles.len(),
             puzzles,
@@ -295,7 +347,10 @@ pub async fn random(
         .into_response()
     } else {
         Json(puzzles.into_iter().next().expect("non-empty")).into_response()
-    })
+    };
+
+    response.extensions_mut().insert(sample);
+    Ok(response)
 }
 
 #[utoipa::path(
@@ -502,4 +557,133 @@ pub async fn llms_txt(
         )],
         crate::api::pages::llms_txt(&site_facts(&sampler, &headers)),
     )
+}
+
+/// How far back the public report reaches.
+const USAGE_WINDOW_DAYS: i64 = 30;
+
+/// The usage endpoint reads `api.db`, which the key store owns, so it carries
+/// its own state rather than the puzzle sampler.
+pub type UsageState = Arc<crate::auth::keys::KeyStore>;
+
+fn tallies(
+    conn: &rusqlite::Connection,
+    sql: &str,
+    since: &str,
+) -> anyhow::Result<Vec<crate::api::models::Tally>> {
+    use anyhow::Context;
+    let mut statement = conn.prepare(sql).context("preparing tally")?;
+    let rows = statement
+        .query_map((since,), |row| {
+            Ok(crate::api::models::Tally {
+                value: row.get(0)?,
+                requests: row.get(1)?,
+            })
+        })
+        .context("reading tally")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("collecting tally")?;
+    Ok(rows)
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/usage",
+    tag = "reference",
+    responses(
+        (status = 200, description = "Aggregate usage over the last 30 days", body = UsageResponse),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
+pub async fn usage(State(store): State<UsageState>) -> ApiResult<Json<UsageResponse>> {
+    let report = blocking(move || {
+        let since = jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .date()
+            .saturating_sub(jiff::Span::new().days(USAGE_WINDOW_DAYS))
+            .to_string();
+
+        store.read(|conn| {
+            let totals = conn.query_row(
+                "SELECT COALESCE(SUM(count), 0),
+                        COALESCE(SUM(CASE WHEN keyed = 0 THEN count ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN keyed = 1 THEN count ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status >= 400 THEN count ELSE 0 END), 0)
+                 FROM usage_daily WHERE day >= ?1",
+                (&since,),
+                |row| {
+                    Ok(UsageTotals {
+                        requests: row.get(0)?,
+                        anonymous: row.get(1)?,
+                        keyed: row.get(2)?,
+                        errors: row.get(3)?,
+                    })
+                },
+            )?;
+
+            let mut statement = conn.prepare(
+                "SELECT day, SUM(count), SUM(CASE WHEN status >= 400 THEN count ELSE 0 END)
+                 FROM usage_daily WHERE day >= ?1 GROUP BY day ORDER BY day",
+            )?;
+            let daily = statement
+                .query_map((&since,), |row| {
+                    Ok(DailyTally {
+                        day: row.get(0)?,
+                        requests: row.get(1)?,
+                        errors: row.get(2)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let by_endpoint = tallies(
+                conn,
+                "SELECT endpoint, SUM(count) FROM usage_daily WHERE day >= ?1
+                 GROUP BY endpoint ORDER BY SUM(count) DESC",
+                &since,
+            )?;
+            let by_status = tallies(
+                conn,
+                "SELECT CAST(status AS TEXT), SUM(count) FROM usage_daily WHERE day >= ?1
+                 GROUP BY status ORDER BY SUM(count) DESC",
+                &since,
+            )?;
+
+            let popular_in = |dimension: &str| -> anyhow::Result<Vec<crate::api::models::Tally>> {
+                let mut statement = conn.prepare(
+                    "SELECT value, SUM(count) FROM filter_usage_daily
+                     WHERE day >= ?1 AND dimension = ?2
+                     GROUP BY value ORDER BY SUM(count) DESC LIMIT 25",
+                )?;
+                let rows = statement
+                    .query_map((&since, dimension), |row| {
+                        Ok(crate::api::models::Tally {
+                            value: row.get(0)?,
+                            requests: row.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            };
+
+            Ok(UsageResponse {
+                generated_at: jiff::Timestamp::now().to_string(),
+                since: since.clone(),
+                totals,
+                daily,
+                by_endpoint,
+                by_status,
+                popular: PopularFilters {
+                    themes: popular_in(usage::dimensions::THEME)?,
+                    excluded_themes: popular_in(usage::dimensions::EXCLUDED_THEME)?,
+                    rating_bands: popular_in(usage::dimensions::RATING_BAND)?,
+                    options: popular_in(usage::dimensions::OPTION)?,
+                },
+                note: "Aggregate counts only. Requests are split by whether they carried an \
+                       API key, never by which one, and no client address is stored.",
+            })
+        })
+    })
+    .await?;
+
+    Ok(Json(report))
 }

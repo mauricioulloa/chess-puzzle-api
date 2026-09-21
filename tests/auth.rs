@@ -60,6 +60,7 @@ fn harness(anonymous_limit: u32) -> Harness {
             store: Arc::new(KeyStore::in_memory().expect("key store")),
             limiter: Arc::new(RateLimiter::new()),
             usage: Mutex::new(HashMap::new()),
+            stats: Arc::new(chess_puzzle_api::usage::Collector::new()),
             anonymous_limit,
             trust_proxy_headers: false,
         }),
@@ -222,4 +223,159 @@ async fn a_malformed_authorization_header_falls_back_to_anonymous() {
         header(&response, "x-ratelimit-scope").as_deref(),
         Some("anonymous")
     );
+}
+
+// --- usage accounting ----------------------------------------------------
+
+/// Counters buffer in memory and the endpoint reads disk, so tests drain the
+/// buffer the way the maintenance task does.
+fn flush(harness: &Harness) {
+    let (requests, filters) = harness.auth.stats.take();
+    harness
+        .auth
+        .store
+        .flush_stats(&requests, &filters)
+        .expect("flush");
+}
+
+#[tokio::test]
+async fn usage_counts_requests_by_endpoint_and_status() {
+    let harness = harness(1000);
+
+    for _ in 0..3 {
+        request(&harness, "/v1/puzzles/random", None).await;
+    }
+    request(&harness, "/v1/themes", None).await;
+    request(&harness, "/v1/puzzles/random?themes=nonsense", None).await; // 400
+    flush(&harness);
+
+    let (status, body, _) = request(&harness, "/v1/usage", None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(body["totals"]["requests"], 5);
+    assert_eq!(body["totals"]["errors"], 1, "the 400 counts as an error");
+
+    let endpoints: Vec<&str> = body["byEndpoint"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["value"].as_str().unwrap())
+        .collect();
+    assert!(endpoints.contains(&"/v1/puzzles/random"));
+    assert!(endpoints.contains(&"/v1/themes"));
+}
+
+#[tokio::test]
+async fn endpoints_are_counted_by_route_not_by_url() {
+    let harness = harness(1000);
+
+    // Three different ids must not become three rows, or the table would grow
+    // once per puzzle ever requested.
+    for id in ["00008", "00014", "000rO"] {
+        request(&harness, &format!("/v1/puzzles/{id}"), None).await;
+    }
+    flush(&harness);
+
+    let (_, body, _) = request(&harness, "/v1/usage", None).await;
+    let lookups: Vec<&serde_json::Value> = body["byEndpoint"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["value"] == "/v1/puzzles/{id}")
+        .collect();
+
+    assert_eq!(lookups.len(), 1, "one row for the route template");
+    assert_eq!(lookups[0]["requests"], 3);
+}
+
+#[tokio::test]
+async fn anonymous_and_keyed_traffic_are_reported_apart() {
+    let harness = harness(1000);
+    let key = harness.auth.store.create("reported", 100).expect("key");
+
+    request(&harness, "/v1/puzzles/random", None).await;
+    request(&harness, "/v1/puzzles/random", Some(&key)).await;
+    request(&harness, "/v1/puzzles/random", Some(&key)).await;
+    flush(&harness);
+
+    let (_, body, _) = request(&harness, "/v1/usage", None).await;
+    assert_eq!(body["totals"]["anonymous"], 1);
+    assert_eq!(body["totals"]["keyed"], 2);
+}
+
+#[tokio::test]
+async fn the_public_report_never_identifies_a_caller() {
+    let harness = harness(1000);
+    let key = harness
+        .auth
+        .store
+        .create("a-very-distinctive-label", 100)
+        .expect("key");
+
+    request(&harness, "/v1/puzzles/random", Some(&key)).await;
+    flush(&harness);
+
+    let (_, body, _) = request(&harness, "/v1/usage", None).await;
+    let serialised = body.to_string();
+
+    assert!(
+        !serialised.contains("a-very-distinctive-label"),
+        "a public report must not name key holders"
+    );
+    assert!(
+        !serialised.contains(&key),
+        "and certainly not the key itself"
+    );
+    assert!(!serialised.contains("127.0.0.1"), "nor any client address");
+}
+
+#[tokio::test]
+async fn popular_filters_are_recorded_in_canonical_names() {
+    let harness = harness(1000);
+
+    // Mixed case on the way in; the report should not split the count across
+    // spellings of the same theme.
+    request(&harness, "/v1/puzzles/random?themes=fork", None).await;
+    request(&harness, "/v1/puzzles/random?themes=FORK", None).await;
+    request(
+        &harness,
+        "/v1/puzzles/random?themes=fork&excludeThemes=endgame&rating=1500",
+        None,
+    )
+    .await;
+    flush(&harness);
+
+    let (_, body, _) = request(&harness, "/v1/usage", None).await;
+    let themes = body["popular"]["themes"].as_array().unwrap();
+    assert_eq!(themes.len(), 1, "one entry, not one per spelling");
+    assert_eq!(themes[0]["value"], "fork");
+    assert_eq!(themes[0]["requests"], 3);
+
+    assert_eq!(body["popular"]["excludedThemes"][0]["value"], "endgame");
+    assert_eq!(body["popular"]["ratingBands"][0]["value"], "1400-1599");
+}
+
+#[tokio::test]
+async fn searches_that_find_nothing_are_still_recorded() {
+    let harness = harness(1000);
+
+    // Nothing in the fixture is a fork outside the endgame in this band.
+    let (status, _, _) = request(
+        &harness,
+        "/v1/puzzles/random?themes=fork&excludeThemes=endgame&rating=1500",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    flush(&harness);
+
+    let (_, body, _) = request(&harness, "/v1/usage", None).await;
+    let themes = body["popular"]["themes"].as_array().unwrap();
+
+    assert_eq!(
+        themes[0]["value"], "fork",
+        "what someone asked for and did not get is the most useful signal \
+         the counters carry: it shows where demand outruns the dataset"
+    );
+    assert_eq!(body["totals"]["errors"], 1);
 }

@@ -24,6 +24,7 @@ use utoipa::OpenApi;
         handlers::themes,
         handlers::stats,
         handlers::health,
+        handlers::usage,
     ),
     components(schemas(
         PuzzleResponse,
@@ -34,6 +35,11 @@ use utoipa::OpenApi;
         StatsResponse,
         Source,
         HealthResponse,
+        UsageResponse,
+        UsageTotals,
+        DailyTally,
+        Tally,
+        PopularFilters,
         ErrorBody,
     )),
     tags(

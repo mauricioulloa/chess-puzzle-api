@@ -62,7 +62,8 @@ fn generate_key() -> String {
     format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(bytes))
 }
 
-/// The key database.
+/// The read-write side of the service: API keys and the usage counters,
+/// which share `api.db` because they share a lifecycle.
 ///
 /// A single connection behind a mutex rather than a pool: a lookup is an
 /// indexed point query on a table with a handful of rows, which costs a few
@@ -84,6 +85,8 @@ impl KeyStore {
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .context("configuring the key database")?;
         conn.execute_batch(SCHEMA).context("creating key schema")?;
+        conn.execute_batch(crate::usage::SCHEMA)
+            .context("creating usage schema")?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -92,6 +95,8 @@ impl KeyStore {
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().context("in-memory key database")?;
         conn.execute_batch(SCHEMA).context("creating key schema")?;
+        conn.execute_batch(crate::usage::SCHEMA)
+            .context("creating usage schema")?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -173,6 +178,23 @@ impl KeyStore {
             .collect::<rusqlite::Result<Vec<_>>>()
             .context("reading keys")?;
         Ok(rows)
+    }
+
+    /// Drains the aggregate usage counters to disk.
+    pub fn flush_stats(
+        &self,
+        requests: &HashMap<crate::usage::RequestKey, u64>,
+        filters: &HashMap<crate::usage::FilterKey, u64>,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().expect("key store lock");
+        crate::usage::flush(&mut conn, requests, filters)
+    }
+
+    /// Runs a read against `api.db`. Used by the usage endpoint, which reads
+    /// counters that live alongside the keys.
+    pub fn read<T>(&self, query: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let conn = self.conn.lock().expect("key store lock");
+        query(&conn)
     }
 
     /// Writes buffered usage counts. Called on a timer rather than per

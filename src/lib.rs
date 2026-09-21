@@ -9,3 +9,4 @@ pub mod chess;
 pub mod db;
 pub mod import;
 pub mod serve;
+pub mod usage;

@@ -174,3 +174,53 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub puzzles: i64,
 }
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Tally {
+    pub value: String,
+    pub requests: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTally {
+    pub day: String,
+    pub requests: i64,
+    pub errors: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTotals {
+    pub requests: i64,
+    pub anonymous: i64,
+    pub keyed: i64,
+    pub errors: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PopularFilters {
+    pub themes: Vec<Tally>,
+    pub excluded_themes: Vec<Tally>,
+    pub rating_bands: Vec<Tally>,
+    pub options: Vec<Tally>,
+}
+
+/// Aggregate usage, published openly.
+///
+/// Nothing here can be traced to a caller: requests are split by whether they
+/// carried a key, never by which one, and no address is stored anywhere.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResponse {
+    pub generated_at: String,
+    pub since: String,
+    pub totals: UsageTotals,
+    pub daily: Vec<DailyTally>,
+    pub by_endpoint: Vec<Tally>,
+    pub by_status: Vec<Tally>,
+    pub popular: PopularFilters,
+    pub note: &'static str,
+}

@@ -270,6 +270,30 @@ Both endpoints sit outside the rate limiter, along with `/health`: reading the
 documentation should not spend anyone's quota.
 
 
+## Usage statistics
+
+`GET /v1/usage` publishes how the service is being used: request totals over
+the last 30 days, a daily series, a breakdown by endpoint and status, and the
+filters people actually ask for — which themes, which rating bands, how often
+a batch or a drawn board is requested.
+
+It is public on purpose. It is also publishable *by construction*: the
+counters store whether a request carried **a** key, never **which**, and no
+client address is stored anywhere. Per-key totals exist, but they live in the
+`api_keys` table where only the operator sees them, via `keys list`.
+
+Counters, not logs. A row per request would grow without bound, write to disk
+on every hit, and — because a request carries an IP — become personal data
+with a retention policy attached. Daily counters answer the same questions in
+a few kilobytes a month.
+
+Searches that match nothing are counted too, and deliberately: a filter that
+returns a 404 is someone telling you what the dataset does not have, which is
+the clearest signal there is about where the curation falls short of demand.
+
+Endpoints are counted by route template, so three million puzzle ids do not
+become three million rows.
+
 ## Authentication and rate limits
 
 The API is open: no key is needed. A key only raises the ceiling.

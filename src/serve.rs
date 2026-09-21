@@ -73,6 +73,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         store: Arc::clone(&store),
         limiter: Arc::new(RateLimiter::new()),
         usage: Mutex::new(HashMap::new()),
+        stats: Arc::new(crate::usage::Collector::new()),
         anonymous_limit: args.anonymous_limit,
         trust_proxy_headers: args.trust_proxy_headers,
     });
@@ -106,7 +107,11 @@ pub async fn run(args: ServeArgs) -> Result<()> {
 
     // Whatever accumulated since the last tick would otherwise be lost.
     if let Err(err) = store.flush_usage(&auth.take_usage()) {
-        tracing::warn!("could not flush usage on shutdown: {err:#}");
+        tracing::warn!("could not flush per-key usage on shutdown: {err:#}");
+    }
+    let (requests, filters) = auth.stats.take();
+    if let Err(err) = store.flush_stats(&requests, &filters) {
+        tracing::warn!("could not flush usage counters on shutdown: {err:#}");
     }
     Ok(())
 }
@@ -119,7 +124,11 @@ async fn maintenance(auth: Arc<AuthState>, store: Arc<KeyStore>) {
     loop {
         ticker.tick().await;
         if let Err(err) = store.flush_usage(&auth.take_usage()) {
-            tracing::warn!("could not flush usage: {err:#}");
+            tracing::warn!("could not flush per-key usage: {err:#}");
+        }
+        let (requests, filters) = auth.stats.take();
+        if let Err(err) = store.flush_stats(&requests, &filters) {
+            tracing::warn!("could not flush usage counters: {err:#}");
         }
         auth.limiter.prune();
     }

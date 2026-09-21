@@ -428,10 +428,61 @@
           }
         }
       }
+    },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "operationId": "usage",
+        "responses": {
+          "200": {
+            "description": "Aggregate usage over the last 30 days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "DailyTally": {
+        "type": "object",
+        "required": [
+          "day",
+          "requests",
+          "errors"
+        ],
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ErrorBody": {
         "type": "object",
         "description": "The shape of every error response.",
@@ -470,6 +521,41 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "PopularFilters": {
+        "type": "object",
+        "required": [
+          "themes",
+          "excludedThemes",
+          "ratingBands",
+          "options"
+        ],
+        "properties": {
+          "excludedThemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
+          },
+          "ratingBands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
           }
         }
       },
@@ -708,6 +794,22 @@
           }
         }
       },
+      "Tally": {
+        "type": "object",
+        "required": [
+          "value",
+          "requests"
+        ],
+        "properties": {
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "ThemeResponse": {
         "type": "object",
         "required": [
@@ -745,6 +847,82 @@
             "items": {
               "$ref": "#/components/schemas/ThemeResponse"
             }
+          }
+        }
+      },
+      "UsageResponse": {
+        "type": "object",
+        "description": "Aggregate usage, published openly.\n\nNothing here can be traced to a caller: requests are split by whether they\ncarried a key, never by which one, and no address is stored anywhere.",
+        "required": [
+          "generatedAt",
+          "since",
+          "totals",
+          "daily",
+          "byEndpoint",
+          "byStatus",
+          "popular",
+          "note"
+        ],
+        "properties": {
+          "byEndpoint": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
+          },
+          "byStatus": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tally"
+            }
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyTally"
+            }
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "popular": {
+            "$ref": "#/components/schemas/PopularFilters"
+          },
+          "since": {
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          }
+        }
+      },
+      "UsageTotals": {
+        "type": "object",
+        "required": [
+          "requests",
+          "anonymous",
+          "keyed",
+          "errors"
+        ],
+        "properties": {
+          "anonymous": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "errors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "keyed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       }

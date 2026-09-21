@@ -16,6 +16,7 @@ const ROUTES: &[&str] = &[
     "/v1/puzzles/{id}/solution",
     "/v1/themes",
     "/v1/stats",
+    "/v1/usage",
     "/health",
 ];
 

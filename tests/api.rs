@@ -57,6 +57,7 @@ fn permissive_auth() -> Arc<AuthState> {
         store: Arc::new(KeyStore::in_memory().expect("key store")),
         limiter: Arc::new(RateLimiter::new()),
         usage: Mutex::new(HashMap::new()),
+        stats: Arc::new(chess_puzzle_api::usage::Collector::new()),
         anonymous_limit: u32::MAX,
         trust_proxy_headers: false,
     })
