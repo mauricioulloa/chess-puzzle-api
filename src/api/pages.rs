@@ -144,6 +144,9 @@ mod tests {
         // And the author's credit should survive a redesign.
         assert!(html.contains("Mauri Ulloa"));
         assert!(html.contains("https://mauriulloa.com"));
+        // The piece set is CC BY-SA; attribution is an obligation, not a nicety.
+        assert!(html.contains("Cburnett"));
+        assert!(html.contains("creativecommons.org/licenses/by-sa/3.0"));
     }
 
     #[test]
@@ -192,6 +195,9 @@ mod tests {
             "id=\"theme\"",
             "Show solution",
             "New puzzle",
+            // A solution written only in chess notation is unreadable to the
+            // audience this page exists for.
+            "What does this notation mean?",
         ] {
             assert!(html.contains(needle), "the trainer is missing {needle}");
         }

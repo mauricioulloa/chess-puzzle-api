@@ -11,13 +11,13 @@
     color-scheme: light dark;
     --bg: #fbfaf8; --fg: #1a1a1a; --muted: #5c5c5c; --line: #e3e0da;
     --panel: #ffffff; --code-bg: #f2efe9; --accent: #3c6e47;
-    --light-sq: #edd6b0; --dark-sq: #b58863; --mark: #d7c04a;
+    --light-sq: #ebecd0; --dark-sq: #739552; --mark: #f7f769;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #16171a; --fg: #e8e6e3; --muted: #9a9894; --line: #2c2e33;
       --panel: #1c1e22; --code-bg: #1f2125; --accent: #8fc79a;
-      --light-sq: #d8c19c; --dark-sq: #a07953; --mark: #c4ac3f;
+      --light-sq: #ebecd0; --dark-sq: #739552; --mark: #f7f769;
     }
   }
   * { box-sizing: border-box; }
@@ -49,31 +49,51 @@
   .game { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
   .board-wrap { flex: 1 1 22rem; max-width: 30rem; }
   .board {
-    display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
-    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    display: grid;
+    /* Both axes must be declared. With only the columns given, the browser
+       sizes rows from their content, so a rank with no pieces collapses to a
+       thin strip and the squares stop being square. */
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    aspect-ratio: 1;
+    border-radius: 3px; overflow: hidden;
     user-select: none;
   }
-  .sq {
-    display: flex; align-items: center; justify-content: center;
-    position: relative; font-size: min(7.5vw, 2.6rem); line-height: 1;
-  }
+  .sq { position: relative; }
   .sq.light { background: var(--light-sq); }
   .sq.dark  { background: var(--dark-sq); }
   .sq.mark::after {
     content: ""; position: absolute; inset: 0;
     background: var(--mark); opacity: .55; pointer-events: none;
   }
-  .sq .piece { position: relative; z-index: 1; }
+  /* Cburnett piece set, inlined so the board needs no network request.
+     Drawn as backgrounds rather than text: Unicode chess glyphs render
+     differently on every platform and several fonts have no black pawn. */
+  .sq .piece {
+    position: absolute; inset: 0; z-index: 1;
+    background-repeat: no-repeat; background-position: center;
+    background-size: 92%;
+  }
+  .p-wk { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NSIgaGVpZ2h0PSI0NSI+IDxnIGZpbGw9Im5vbmUiIGZpbGwtcnVsZT0iZXZlbm9kZCIgc3Ryb2tlPSIjMDAwIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS13aWR0aD0iMS41Ij4gPHBhdGggc3Ryb2tlLWxpbmVqb2luPSJtaXRlciIgZD0iTTIyLjUgMTEuNjNWNk0yMCA4aDUiLz4gPHBhdGggZmlsbD0iI2ZmZiIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIGQ9Ik0yMi41IDI1czQuNS03LjUgMy0xMC41YzAgMC0xLTIuNS0zLTIuNXMtMyAyLjUtMyAyLjVjLTEuNSAzIDMgMTAuNSAzIDEwLjUiLz4gPHBhdGggZmlsbD0iI2ZmZiIgZD0iTTEyLjUgMzdjNS41IDMuNSAxNC41IDMuNSAyMCAwdi03czktNC41IDYtMTAuNWMtNC02LjUtMTMuNS0zLjUtMTYgNFYyN3YtMy41Yy0yLjUtNy41LTEyLTEwLjUtMTYtNC0zIDYgNiAxMC41IDYgMTAuNXY3Ii8+IDxwYXRoIGQ9Ik0xMi41IDMwYzUuNS0zIDE0LjUtMyAyMCAwbS0yMCAzLjVjNS41LTMgMTQuNS0zIDIwIDBtLTIwIDMuNWM1LjUtMyAxNC41LTMgMjAgMCIvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-wq { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9ImZpbGw6I2ZmZmZmZjtzdHJva2U6IzAwMDAwMDtzdHJva2Utd2lkdGg6MS41O3N0cm9rZS1saW5lam9pbjpyb3VuZCI+IDxwYXRoIGQ9Ik0gOSwyNiBDIDE3LjUsMjQuNSAzMCwyNC41IDM2LDI2IEwgMzguNSwxMy41IEwgMzEsMjUgTCAzMC43LDEwLjkgTCAyNS41LDI0LjUgTCAyMi41LDEwIEwgMTkuNSwyNC41IEwgMTQuMywxMC45IEwgMTQsMjUgTCA2LjUsMTMuNSBMIDksMjYgeiIvPiA8cGF0aCBkPSJNIDksMjYgQyA5LDI4IDEwLjUsMjggMTEuNSwzMCBDIDEyLjUsMzEuNSAxMi41LDMxIDEyLDMzLjUgQyAxMC41LDM0LjUgMTEsMzYgMTEsMzYgQyA5LjUsMzcuNSAxMSwzOC41IDExLDM4LjUgQyAxNy41LDM5LjUgMjcuNSwzOS41IDM0LDM4LjUgQyAzNCwzOC41IDM1LjUsMzcuNSAzNCwzNiBDIDM0LDM2IDM0LjUsMzQuNSAzMywzMy41IEMgMzIuNSwzMSAzMi41LDMxLjUgMzMuNSwzMCBDIDM0LjUsMjggMzYsMjggMzYsMjYgQyAyNy41LDI0LjUgMTcuNSwyNC41IDksMjYgeiIvPiA8cGF0aCBkPSJNIDExLjUsMzAgQyAxNSwyOSAzMCwyOSAzMy41LDMwIiBzdHlsZT0iZmlsbDpub25lIi8+IDxwYXRoIGQ9Ik0gMTIsMzMuNSBDIDE4LDMyLjUgMjcsMzIuNSAzMywzMy41IiBzdHlsZT0iZmlsbDpub25lIi8+IDxjaXJjbGUgY3g9IjYiIGN5PSIxMiIgcj0iMiIgLz4gPGNpcmNsZSBjeD0iMTQiIGN5PSI5IiByPSIyIiAvPiA8Y2lyY2xlIGN4PSIyMi41IiBjeT0iOCIgcj0iMiIgLz4gPGNpcmNsZSBjeD0iMzEiIGN5PSI5IiByPSIyIiAvPiA8Y2lyY2xlIGN4PSIzOSIgY3k9IjEyIiByPSIyIiAvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-wr { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDojZmZmZmZmOyBmaWxsLW9wYWNpdHk6MTsgZmlsbC1ydWxlOmV2ZW5vZGQ7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6NDsgc3Ryb2tlLWRhc2hhcnJheTpub25lOyBzdHJva2Utb3BhY2l0eToxOyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwwLjMpIj4gPHBhdGggZD0iTSA5LDM5IEwgMzYsMzkgTCAzNiwzNiBMIDksMzYgTCA5LDM5IHogIiBzdHlsZT0ic3Ryb2tlLWxpbmVjYXA6YnV0dDsiIC8+IDxwYXRoIGQ9Ik0gMTIsMzYgTCAxMiwzMiBMIDMzLDMyIEwgMzMsMzYgTCAxMiwzNiB6ICIgc3R5bGU9InN0cm9rZS1saW5lY2FwOmJ1dHQ7IiAvPiA8cGF0aCBkPSJNIDExLDE0IEwgMTEsOSBMIDE1LDkgTCAxNSwxMSBMIDIwLDExIEwgMjAsOSBMIDI1LDkgTCAyNSwxMSBMIDMwLDExIEwgMzAsOSBMIDM0LDkgTCAzNCwxNCIgc3R5bGU9InN0cm9rZS1saW5lY2FwOmJ1dHQ7IiAvPiA8cGF0aCBkPSJNIDM0LDE0IEwgMzEsMTcgTCAxNCwxNyBMIDExLDE0IiAvPiA8cGF0aCBkPSJNIDMxLDE3IEwgMzEsMjkuNSBMIDE0LDI5LjUgTCAxNCwxNyIgc3R5bGU9InN0cm9rZS1saW5lY2FwOmJ1dHQ7IHN0cm9rZS1saW5lam9pbjptaXRlcjsiIC8+IDxwYXRoIGQ9Ik0gMzEsMjkuNSBMIDMyLjUsMzIgTCAxMi41LDMyIEwgMTQsMjkuNSIgLz4gPHBhdGggZD0iTSAxMSwxNCBMIDM0LDE0IiBzdHlsZT0iZmlsbDpub25lOyBzdHJva2U6IzAwMDAwMDsgc3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgLz4gPC9nPiA8L3N2Zz4="); }
+  .p-wb { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDpub25lOyBmaWxsLXJ1bGU6ZXZlbm9kZDsgZmlsbC1vcGFjaXR5OjE7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDsgc3Ryb2tlLWxpbmVqb2luOnJvdW5kOyBzdHJva2UtbWl0ZXJsaW1pdDo0OyBzdHJva2UtZGFzaGFycmF5Om5vbmU7IHN0cm9rZS1vcGFjaXR5OjE7IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLDAuNikiPiA8ZyBzdHlsZT0iZmlsbDojZmZmZmZmOyBzdHJva2U6IzAwMDAwMDsgc3Ryb2tlLWxpbmVjYXA6YnV0dDsiPiA8cGF0aCBkPSJNIDksMzYgQyAxMi4zOSwzNS4wMyAxOS4xMSwzNi40MyAyMi41LDM0IEMgMjUuODksMzYuNDMgMzIuNjEsMzUuMDMgMzYsMzYgQyAzNiwzNiAzNy42NSwzNi41NCAzOSwzOCBDIDM4LjMyLDM4Ljk3IDM3LjM1LDM4Ljk5IDM2LDM4LjUgQyAzMi42MSwzNy41MyAyNS44OSwzOC45NiAyMi41LDM3LjUgQyAxOS4xMSwzOC45NiAxMi4zOSwzNy41MyA5LDM4LjUgQyA3LjY1LDM4Ljk5IDYuNjgsMzguOTcgNiwzOCBDIDcuMzUsMzYuNTQgOSwzNiA5LDM2IHoiLz4gPHBhdGggZD0iTSAxNSwzMiBDIDE3LjUsMzQuNSAyNy41LDM0LjUgMzAsMzIgQyAzMC41LDMwLjUgMzAsMzAgMzAsMzAgQyAzMCwyNy41IDI3LjUsMjYgMjcuNSwyNiBDIDMzLDI0LjUgMzMuNSwxNC41IDIyLjUsMTAuNSBDIDExLjUsMTQuNSAxMiwyNC41IDE3LjUsMjYgQyAxNy41LDI2IDE1LDI3LjUgMTUsMzAgQyAxNSwzMCAxNC41LDMwLjUgMTUsMzIgeiIvPiA8cGF0aCBkPSJNIDI1IDggQSAyLjUgMi41IDAgMSAxIDIwLDggQSAyLjUgMi41IDAgMSAxIDI1IDggeiIvPiA8L2c+IDxwYXRoIGQ9Ik0gMTcuNSwyNiBMIDI3LjUsMjYgTSAxNSwzMCBMIDMwLDMwIE0gMjIuNSwxNS41IEwgMjIuNSwyMC41IE0gMjAsMTggTCAyNSwxOCIgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiMwMDAwMDA7IHN0cm9rZS1saW5lam9pbjptaXRlcjsiLz4gPC9nPiA8L3N2Zz4="); }
+  .p-wn { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDpub25lOyBmaWxsLW9wYWNpdHk6MTsgZmlsbC1ydWxlOmV2ZW5vZGQ7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6NDsgc3Ryb2tlLWRhc2hhcnJheTpub25lOyBzdHJva2Utb3BhY2l0eToxOyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwwLjMpIj4gPHBhdGggZD0iTSAyMiwxMCBDIDMyLjUsMTEgMzguNSwxOCAzOCwzOSBMIDE1LDM5IEMgMTUsMzAgMjUsMzIuNSAyMywxOCIgc3R5bGU9ImZpbGw6I2ZmZmZmZjsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8cGF0aCBkPSJNIDI0LDE4IEMgMjQuMzgsMjAuOTEgMTguNDUsMjUuMzcgMTYsMjcgQyAxMywyOSAxMy4xOCwzMS4zNCAxMSwzMSBDIDkuOTU4LDMwLjA2IDEyLjQxLDI3Ljk2IDExLDI4IEMgMTAsMjggMTEuMTksMjkuMjMgMTAsMzAgQyA5LDMwIDUuOTk3LDMxIDYsMjYgQyA2LDI0IDEyLDE0IDEyLDE0IEMgMTIsMTQgMTMuODksMTIuMSAxNCwxMC41IEMgMTMuMjcsOS41MDYgMTMuNSw4LjUgMTMuNSw3LjUgQyAxNC41LDYuNSAxNi41LDEwIDE2LjUsMTAgTCAxOC41LDEwIEMgMTguNSwxMCAxOS4yOCw4LjAwOCAyMSw3IEMgMjIsNyAyMiwxMCAyMiwxMCIgc3R5bGU9ImZpbGw6I2ZmZmZmZjsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8cGF0aCBkPSJNIDkuNSAyNS41IEEgMC41IDAuNSAwIDEgMSA4LjUsMjUuNSBBIDAuNSAwLjUgMCAxIDEgOS41IDI1LjUgeiIgc3R5bGU9ImZpbGw6IzAwMDAwMDsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8cGF0aCBkPSJNIDE1IDE1LjUgQSAwLjUgMS41IDAgMSAxIDE0LDE1LjUgQSAwLjUgMS41IDAgMSAxIDE1IDE1LjUgeiIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYsMC41LC0wLjUsMC44NjYsOS42OTMsLTUuMTczKSIgc3R5bGU9ImZpbGw6IzAwMDAwMDsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-wp { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPHBhdGggZD0ibSAyMi41LDkgYyAtMi4yMSwwIC00LDEuNzkgLTQsNCAwLDAuODkgMC4yOSwxLjcxIDAuNzgsMi4zOCBDIDE3LjMzLDE2LjUgMTYsMTguNTkgMTYsMjEgYyAwLDIuMDMgMC45NCwzLjg0IDIuNDEsNS4wMyBDIDE1LjQxLDI3LjA5IDExLDMxLjU4IDExLDM5LjUgSCAzNCBDIDM0LDMxLjU4IDI5LjU5LDI3LjA5IDI2LjU5LDI2LjAzIDI4LjA2LDI0Ljg0IDI5LDIzLjAzIDI5LDIxIDI5LDE4LjU5IDI3LjY3LDE2LjUgMjUuNzIsMTUuMzggMjYuMjEsMTQuNzEgMjYuNSwxMy44OSAyNi41LDEzIGMgMCwtMi4yMSAtMS43OSwtNCAtNCwtNCB6IiBzdHlsZT0ib3BhY2l0eToxOyBmaWxsOiNmZmZmZmY7IGZpbGwtb3BhY2l0eToxOyBmaWxsLXJ1bGU6bm9uemVybzsgc3Ryb2tlOiMwMDAwMDA7IHN0cm9rZS13aWR0aDoxLjU7IHN0cm9rZS1saW5lY2FwOnJvdW5kOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7IHN0cm9rZS1taXRlcmxpbWl0OjQ7IHN0cm9rZS1kYXNoYXJyYXk6bm9uZTsgc3Ryb2tlLW9wYWNpdHk6MTsiLz4gPC9zdmc+"); }
+  .p-bk { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9ImZpbGw6bm9uZTsgZmlsbC1vcGFjaXR5OjE7IGZpbGwtcnVsZTpldmVub2RkOyBzdHJva2U6IzAwMDAwMDsgc3Ryb2tlLXdpZHRoOjEuNTsgc3Ryb2tlLWxpbmVjYXA6cm91bmQ7c3Ryb2tlLWxpbmVqb2luOnJvdW5kO3N0cm9rZS1taXRlcmxpbWl0OjQ7IHN0cm9rZS1kYXNoYXJyYXk6bm9uZTsgc3Ryb2tlLW9wYWNpdHk6MTsiPiA8cGF0aCBkPSJNIDIyLjUsMTEuNjMgTCAyMi41LDYiIHN0eWxlPSJmaWxsOm5vbmU7IHN0cm9rZTojMDAwMDAwOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7IiBpZD0icGF0aDY1NzAiLz4gPHBhdGggZD0iTSAyMi41LDI1IEMgMjIuNSwyNSAyNywxNy41IDI1LjUsMTQuNSBDIDI1LjUsMTQuNSAyNC41LDEyIDIyLjUsMTIgQyAyMC41LDEyIDE5LjUsMTQuNSAxOS41LDE0LjUgQyAxOCwxNy41IDIyLjUsMjUgMjIuNSwyNSIgc3R5bGU9ImZpbGw6IzAwMDAwMDtmaWxsLW9wYWNpdHk6MTsgc3Ryb2tlLWxpbmVjYXA6YnV0dDsgc3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIvPiA8cGF0aCBkPSJNIDEyLjUsMzcgQyAxOCw0MC41IDI3LDQwLjUgMzIuNSwzNyBMIDMyLjUsMzAgQyAzMi41LDMwIDQxLjUsMjUuNSAzOC41LDE5LjUgQyAzNC41LDEzIDI1LDE2IDIyLjUsMjMuNSBMIDIyLjUsMjcgTCAyMi41LDIzLjUgQyAyMCwxNiAxMC41LDEzIDYuNSwxOS41IEMgMy41LDI1LjUgMTIuNSwzMCAxMi41LDMwIEwgMTIuNSwzNyIgc3R5bGU9ImZpbGw6IzAwMDAwMDsgc3Ryb2tlOiMwMDAwMDA7Ii8+IDxwYXRoIGQ9Ik0gMjAsOCBMIDI1LDgiIHN0eWxlPSJmaWxsOm5vbmU7IHN0cm9rZTojMDAwMDAwOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7Ii8+IDxwYXRoIGQ9Ik0gMzIsMjkuNSBDIDMyLDI5LjUgNDAuNSwyNS41IDM4LjAzLDE5Ljg1IEMgMzQuMTUsMTQgMjUsMTggMjIuNSwyNC41IEwgMjIuNSwyNi42IEwgMjIuNSwyNC41IEMgMjAsMTggMTAuODUsMTQgNi45NywxOS44NSBDIDQuNSwyNS41IDEzLDI5LjUgMTMsMjkuNSIgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiNmZmZmZmY7Ii8+IDxwYXRoIGQ9Ik0gMTIuNSwzMCBDIDE4LDI3IDI3LDI3IDMyLjUsMzAgTSAxMi41LDMzLjUgQyAxOCwzMC41IDI3LDMwLjUgMzIuNSwzMy41IE0gMTIuNSwzNyBDIDE4LDM0IDI3LDM0IDMyLjUsMzciIHN0eWxlPSJmaWxsOm5vbmU7IHN0cm9rZTojZmZmZmZmOyIvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-bq { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9ImZpbGw6IzAwMDAwMDtzdHJva2U6IzAwMDAwMDtzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmQiPiA8cGF0aCBkPSJNIDksMjYgQyAxNy41LDI0LjUgMzAsMjQuNSAzNiwyNiBMIDM4LjUsMTMuNSBMIDMxLDI1IEwgMzAuNywxMC45IEwgMjUuNSwyNC41IEwgMjIuNSwxMCBMIDE5LjUsMjQuNSBMIDE0LjMsMTAuOSBMIDE0LDI1IEwgNi41LDEzLjUgTCA5LDI2IHoiIHN0eWxlPSJzdHJva2UtbGluZWNhcDpidXR0O2ZpbGw6IzAwMDAwMCIgLz4gPHBhdGggZD0ibSA5LDI2IGMgMCwyIDEuNSwyIDIuNSw0IDEsMS41IDEsMSAwLjUsMy41IC0xLjUsMSAtMSwyLjUgLTEsMi41IC0xLjUsMS41IDAsMi41IDAsMi41IDYuNSwxIDE2LjUsMSAyMywwIDAsMCAxLjUsLTEgMCwtMi41IDAsMCAwLjUsLTEuNSAtMSwtMi41IC0wLjUsLTIuNSAtMC41LC0yIDAuNSwtMy41IDEsLTIgMi41LC0yIDIuNSwtNCAtOC41LC0xLjUgLTE4LjUsLTEuNSAtMjcsMCB6IiAvPiA8cGF0aCBkPSJNIDExLjUsMzAgQyAxNSwyOSAzMCwyOSAzMy41LDMwIiAvPiA8cGF0aCBkPSJtIDEyLDMzLjUgYyA2LC0xIDE1LC0xIDIxLDAiIC8+IDxjaXJjbGUgY3g9IjYiIGN5PSIxMiIgcj0iMiIgLz4gPGNpcmNsZSBjeD0iMTQiIGN5PSI5IiByPSIyIiAvPiA8Y2lyY2xlIGN4PSIyMi41IiBjeT0iOCIgcj0iMiIgLz4gPGNpcmNsZSBjeD0iMzEiIGN5PSI5IiByPSIyIiAvPiA8Y2lyY2xlIGN4PSIzOSIgY3k9IjEyIiByPSIyIiAvPiA8cGF0aCBkPSJNIDExLDM4LjUgQSAzNSwzNSAxIDAgMCAzNCwzOC41IiBzdHlsZT0iZmlsbDpub25lOyBzdHJva2U6IzAwMDAwMDtzdHJva2UtbGluZWNhcDpidXR0OyIgLz4gPGcgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiNmZmZmZmY7Ij4gPHBhdGggZD0iTSAxMSwyOSBBIDM1LDM1IDEgMCAxIDM0LDI5IiAvPiA8cGF0aCBkPSJNIDEyLjUsMzEuNSBMIDMyLjUsMzEuNSIgLz4gPHBhdGggZD0iTSAxMS41LDM0LjUgQSAzNSwzNSAxIDAgMCAzMy41LDM0LjUiIC8+IDxwYXRoIGQ9Ik0gMTAuNSwzNy41IEEgMzUsMzUgMSAwIDAgMzQuNSwzNy41IiAvPiA8L2c+IDwvZz4gPC9zdmc+"); }
+  .p-br { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDojMDAwMDAwOyBmaWxsLW9wYWNpdHk6MTsgZmlsbC1ydWxlOmV2ZW5vZGQ7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6NDsgc3Ryb2tlLWRhc2hhcnJheTpub25lOyBzdHJva2Utb3BhY2l0eToxOyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwwLjMpIj4gPHBhdGggZD0iTSA5LDM5IEwgMzYsMzkgTCAzNiwzNiBMIDksMzYgTCA5LDM5IHogIiBzdHlsZT0ic3Ryb2tlLWxpbmVjYXA6YnV0dDsiIC8+IDxwYXRoIGQ9Ik0gMTIuNSwzMiBMIDE0LDI5LjUgTCAzMSwyOS41IEwgMzIuNSwzMiBMIDEyLjUsMzIgeiAiIHN0eWxlPSJzdHJva2UtbGluZWNhcDpidXR0OyIgLz4gPHBhdGggZD0iTSAxMiwzNiBMIDEyLDMyIEwgMzMsMzIgTCAzMywzNiBMIDEyLDM2IHogIiBzdHlsZT0ic3Ryb2tlLWxpbmVjYXA6YnV0dDsiIC8+IDxwYXRoIGQ9Ik0gMTQsMjkuNSBMIDE0LDE2LjUgTCAzMSwxNi41IEwgMzEsMjkuNSBMIDE0LDI5LjUgeiAiIHN0eWxlPSJzdHJva2UtbGluZWNhcDpidXR0O3N0cm9rZS1saW5lam9pbjptaXRlcjsiIC8+IDxwYXRoIGQ9Ik0gMTQsMTYuNSBMIDExLDE0IEwgMzQsMTQgTCAzMSwxNi41IEwgMTQsMTYuNSB6ICIgc3R5bGU9InN0cm9rZS1saW5lY2FwOmJ1dHQ7IiAvPiA8cGF0aCBkPSJNIDExLDE0IEwgMTEsOSBMIDE1LDkgTCAxNSwxMSBMIDIwLDExIEwgMjAsOSBMIDI1LDkgTCAyNSwxMSBMIDMwLDExIEwgMzAsOSBMIDM0LDkgTCAzNCwxNCBMIDExLDE0IHogIiBzdHlsZT0ic3Ryb2tlLWxpbmVjYXA6YnV0dDsiIC8+IDxwYXRoIGQ9Ik0gMTIsMzUuNSBMIDMzLDM1LjUgTCAzMywzNS41IiBzdHlsZT0iZmlsbDpub25lOyBzdHJva2U6I2ZmZmZmZjsgc3Ryb2tlLXdpZHRoOjE7IHN0cm9rZS1saW5lam9pbjptaXRlcjsiIC8+IDxwYXRoIGQ9Ik0gMTMsMzEuNSBMIDMyLDMxLjUiIHN0eWxlPSJmaWxsOm5vbmU7IHN0cm9rZTojZmZmZmZmOyBzdHJva2Utd2lkdGg6MTsgc3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgLz4gPHBhdGggZD0iTSAxNCwyOS41IEwgMzEsMjkuNSIgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiNmZmZmZmY7IHN0cm9rZS13aWR0aDoxOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7IiAvPiA8cGF0aCBkPSJNIDE0LDE2LjUgTCAzMSwxNi41IiBzdHlsZT0iZmlsbDpub25lOyBzdHJva2U6I2ZmZmZmZjsgc3Ryb2tlLXdpZHRoOjE7IHN0cm9rZS1saW5lam9pbjptaXRlcjsiIC8+IDxwYXRoIGQ9Ik0gMTEsMTQgTCAzNCwxNCIgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiNmZmZmZmY7IHN0cm9rZS13aWR0aDoxOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7IiAvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-bb { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDpub25lOyBmaWxsLXJ1bGU6ZXZlbm9kZDsgZmlsbC1vcGFjaXR5OjE7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDsgc3Ryb2tlLWxpbmVqb2luOnJvdW5kOyBzdHJva2UtbWl0ZXJsaW1pdDo0OyBzdHJva2UtZGFzaGFycmF5Om5vbmU7IHN0cm9rZS1vcGFjaXR5OjE7IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLDAuNikiPiA8ZyBzdHlsZT0iZmlsbDojMDAwMDAwOyBzdHJva2U6IzAwMDAwMDsgc3Ryb2tlLWxpbmVjYXA6YnV0dDsiPiA8cGF0aCBkPSJNIDksMzYgQyAxMi4zOSwzNS4wMyAxOS4xMSwzNi40MyAyMi41LDM0IEMgMjUuODksMzYuNDMgMzIuNjEsMzUuMDMgMzYsMzYgQyAzNiwzNiAzNy42NSwzNi41NCAzOSwzOCBDIDM4LjMyLDM4Ljk3IDM3LjM1LDM4Ljk5IDM2LDM4LjUgQyAzMi42MSwzNy41MyAyNS44OSwzOC45NiAyMi41LDM3LjUgQyAxOS4xMSwzOC45NiAxMi4zOSwzNy41MyA5LDM4LjUgQyA3LjY1LDM4Ljk5IDYuNjgsMzguOTcgNiwzOCBDIDcuMzUsMzYuNTQgOSwzNiA5LDM2IHoiLz4gPHBhdGggZD0iTSAxNSwzMiBDIDE3LjUsMzQuNSAyNy41LDM0LjUgMzAsMzIgQyAzMC41LDMwLjUgMzAsMzAgMzAsMzAgQyAzMCwyNy41IDI3LjUsMjYgMjcuNSwyNiBDIDMzLDI0LjUgMzMuNSwxNC41IDIyLjUsMTAuNSBDIDExLjUsMTQuNSAxMiwyNC41IDE3LjUsMjYgQyAxNy41LDI2IDE1LDI3LjUgMTUsMzAgQyAxNSwzMCAxNC41LDMwLjUgMTUsMzIgeiIvPiA8cGF0aCBkPSJNIDI1IDggQSAyLjUgMi41IDAgMSAxIDIwLDggQSAyLjUgMi41IDAgMSAxIDI1IDggeiIvPiA8L2c+IDxwYXRoIGQ9Ik0gMTcuNSwyNiBMIDI3LjUsMjYgTSAxNSwzMCBMIDMwLDMwIE0gMjIuNSwxNS41IEwgMjIuNSwyMC41IE0gMjAsMTggTCAyNSwxOCIgc3R5bGU9ImZpbGw6bm9uZTsgc3Ryb2tlOiNmZmZmZmY7IHN0cm9rZS1saW5lam9pbjptaXRlcjsiLz4gPC9nPiA8L3N2Zz4="); }
+  .p-bn { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPGcgc3R5bGU9Im9wYWNpdHk6MTsgZmlsbDpub25lOyBmaWxsLW9wYWNpdHk6MTsgZmlsbC1ydWxlOmV2ZW5vZGQ7IHN0cm9rZTojMDAwMDAwOyBzdHJva2Utd2lkdGg6MS41OyBzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6NDsgc3Ryb2tlLWRhc2hhcnJheTpub25lOyBzdHJva2Utb3BhY2l0eToxOyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwwLjMpIj4gPHBhdGggZD0iTSAyMiwxMCBDIDMyLjUsMTEgMzguNSwxOCAzOCwzOSBMIDE1LDM5IEMgMTUsMzAgMjUsMzIuNSAyMywxOCIgc3R5bGU9ImZpbGw6IzAwMDAwMDsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8cGF0aCBkPSJNIDI0LDE4IEMgMjQuMzgsMjAuOTEgMTguNDUsMjUuMzcgMTYsMjcgQyAxMywyOSAxMy4xOCwzMS4zNCAxMSwzMSBDIDkuOTU4LDMwLjA2IDEyLjQxLDI3Ljk2IDExLDI4IEMgMTAsMjggMTEuMTksMjkuMjMgMTAsMzAgQyA5LDMwIDUuOTk3LDMxIDYsMjYgQyA2LDI0IDEyLDE0IDEyLDE0IEMgMTIsMTQgMTMuODksMTIuMSAxNCwxMC41IEMgMTMuMjcsOS41MDYgMTMuNSw4LjUgMTMuNSw3LjUgQyAxNC41LDYuNSAxNi41LDEwIDE2LjUsMTAgTCAxOC41LDEwIEMgMTguNSwxMCAxOS4yOCw4LjAwOCAyMSw3IEMgMjIsNyAyMiwxMCAyMiwxMCIgc3R5bGU9ImZpbGw6IzAwMDAwMDsgc3Ryb2tlOiMwMDAwMDA7IiAvPiA8cGF0aCBkPSJNIDkuNSAyNS41IEEgMC41IDAuNSAwIDEgMSA4LjUsMjUuNSBBIDAuNSAwLjUgMCAxIDEgOS41IDI1LjUgeiIgc3R5bGU9ImZpbGw6I2ZmZmZmZjsgc3Ryb2tlOiNmZmZmZmY7IiAvPiA8cGF0aCBkPSJNIDE1IDE1LjUgQSAwLjUgMS41IDAgMSAxIDE0LDE1LjUgQSAwLjUgMS41IDAgMSAxIDE1IDE1LjUgeiIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYsMC41LC0wLjUsMC44NjYsOS42OTMsLTUuMTczKSIgc3R5bGU9ImZpbGw6I2ZmZmZmZjsgc3Ryb2tlOiNmZmZmZmY7IiAvPiA8cGF0aCBkPSJNIDI0LjU1LDEwLjQgTCAyNC4xLDExLjg1IEwgMjQuNiwxMiBDIDI3Ljc1LDEzIDMwLjI1LDE0LjQ5IDMyLjUsMTguNzUgQyAzNC43NSwyMy4wMSAzNS43NSwyOS4wNiAzNS4yNSwzOSBMIDM1LjIsMzkuNSBMIDM3LjQ1LDM5LjUgTCAzNy41LDM5IEMgMzgsMjguOTQgMzYuNjIsMjIuMTUgMzQuMjUsMTcuNjYgQyAzMS44OCwxMy4xNyAyOC40NiwxMS4wMiAyNS4wNiwxMC41IEwgMjQuNTUsMTAuNCB6ICIgc3R5bGU9ImZpbGw6I2ZmZmZmZjsgc3Ryb2tlOm5vbmU7IiAvPiA8L2c+IDwvc3ZnPg=="); }
+  .p-bp { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgd2lkdGg9IjQ1IiBoZWlnaHQ9IjQ1Ij4gPHBhdGggZD0ibSAyMi41LDkgYyAtMi4yMSwwIC00LDEuNzkgLTQsNCAwLDAuODkgMC4yOSwxLjcxIDAuNzgsMi4zOCBDIDE3LjMzLDE2LjUgMTYsMTguNTkgMTYsMjEgYyAwLDIuMDMgMC45NCwzLjg0IDIuNDEsNS4wMyBDIDE1LjQxLDI3LjA5IDExLDMxLjU4IDExLDM5LjUgSCAzNCBDIDM0LDMxLjU4IDI5LjU5LDI3LjA5IDI2LjU5LDI2LjAzIDI4LjA2LDI0Ljg0IDI5LDIzLjAzIDI5LDIxIDI5LDE4LjU5IDI3LjY3LDE2LjUgMjUuNzIsMTUuMzggMjYuMjEsMTQuNzEgMjYuNSwxMy44OSAyNi41LDEzIGMgMCwtMi4yMSAtMS43OSwtNCAtNCwtNCB6IiBzdHlsZT0ib3BhY2l0eToxOyBmaWxsOiMwMDAwMDA7IGZpbGwtb3BhY2l0eToxOyBmaWxsLXJ1bGU6bm9uemVybzsgc3Ryb2tlOiMwMDAwMDA7IHN0cm9rZS13aWR0aDoxLjU7IHN0cm9rZS1saW5lY2FwOnJvdW5kOyBzdHJva2UtbGluZWpvaW46bWl0ZXI7IHN0cm9rZS1taXRlcmxpbWl0OjQ7IHN0cm9rZS1kYXNoYXJyYXk6bm9uZTsgc3Ryb2tlLW9wYWNpdHk6MTsiLz4gPC9zdmc+"); }
   .sq .file, .sq .rank {
     position: absolute; font-size: .58rem; font-weight: 600; line-height: 1;
-    opacity: .8; pointer-events: none; z-index: 2;
+    opacity: 1; pointer-events: none; z-index: 2;
   }
   .sq .file { bottom: 2px; right: 3px; }
   .sq .rank { top: 2px; left: 3px; }
-  .sq.light .file, .sq.light .rank { color: #7a5c38; }
-  .sq.dark  .file, .sq.dark  .rank { color: #f0dcc0; }
-  .piece.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 2px rgba(0,0,0,.6); }
-  .piece.b { color: #1a1a1a; text-shadow: 0 0 1px rgba(255,255,255,.35); }
+  .sq.light .file, .sq.light .rank { color: #739552; }
+  .sq.dark  .file, .sq.dark  .rank { color: #ebecd0; }
 
   /* ---- side panel ---- */
   .panel { flex: 1 1 14rem; min-width: 13rem; }
@@ -92,7 +112,14 @@
            margin: 0; line-height: 1.9; }
   .moves .key { background: var(--mark); color: #1a1a1a; padding: .1em .4em;
                 border-radius: 4px; font-weight: 600; }
+  .plain { margin: .5rem 0 0; font-size: .95rem; }
+  .plain b { font-weight: 600; }
   .hint { color: var(--muted); font-size: .85rem; margin: .6rem 0 0; }
+  .legend { margin-top: .9rem; font-size: .85rem; color: var(--muted); }
+  .legend summary { cursor: pointer; color: var(--accent); }
+  .legend p { margin: .6rem 0 .4rem; }
+  .legend ul { margin: 0 0 .4rem; padding-left: 1.1rem; }
+  .legend li { margin-bottom: .25rem; }
   .status { color: var(--muted); font-style: italic; }
   .error { color: #b3261e; }
   @media (prefers-color-scheme: dark) { .error { color: #f2b8b5; } }
@@ -185,7 +212,21 @@
       <div class="solution" id="solution" hidden>
         <h3>Solution</h3>
         <p class="moves" id="moves"></p>
+        <p class="plain" id="plain"></p>
         <p class="hint" id="analysis"></p>
+        <details class="legend">
+          <summary>What does this notation mean?</summary>
+          <p>Each move names the piece and where it goes. Letters come from
+          the English names:</p>
+          <ul>
+            <li><b>K</b> king &middot; <b>Q</b> queen &middot; <b>R</b> rook
+                &middot; <b>B</b> bishop &middot; <b>N</b> knight</li>
+            <li>No letter means a pawn, as in <code>e4</code>.</li>
+            <li><code>x</code> capture &middot; <code>+</code> check &middot;
+                <code>#</code> checkmate &middot; <code>O-O</code> castling</li>
+          </ul>
+          <p>So <code>Bxa3+</code> reads: the bishop captures on a3, giving check.</p>
+        </details>
       </div>
     </div>
   </div>
@@ -223,6 +264,12 @@
       <a href="https://lichess.org/patron">consider supporting them</a>.
       This project is not affiliated with or endorsed by Lichess.
     </p>
+    <p>
+      Chess pieces by
+      <a href="https://en.wikipedia.org/wiki/User:Cburnett">Colin M.L. Burnett</a>,
+      used under
+      <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
+    </p>
   </footer>
 </main>
 
@@ -244,6 +291,7 @@
     reveal: document.getElementById("reveal"),
     solution: document.getElementById("solution"),
     moves: document.getElementById("moves"),
+    plain: document.getElementById("plain"),
     analysis: document.getElementById("analysis"),
     level: document.getElementById("level"),
     theme: document.getElementById("theme"),
@@ -287,15 +335,41 @@
         if (file === 0) html += '<span class="rank">' + name[1] + "</span>";
         if (rank === 7) html += '<span class="file">' + name[0] + "</span>";
         if (piece) {
-          var isWhite = piece === piece.toUpperCase();
-          html += '<span class="piece ' + (isWhite ? "w" : "b") + '">' +
-                  GLYPH[piece.toLowerCase()] + "</span>";
+          var colour = piece === piece.toUpperCase() ? "w" : "b";
+          html += '<span class="piece p-' + colour + piece.toLowerCase() + '"></span>';
         }
         html += "</div>";
       }
     }
     el.board.innerHTML = html;
 
+  }
+
+  var PIECE_NAMES = { K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight" };
+
+  // Turns "Bxa3+" into "the bishop captures on a3, with check". Parsing SAN
+  // this far needs no board: the letter, the x and the destination square are
+  // all the sentence requires.
+  function inWords(san) {
+    if (san.indexOf("O-O-O") === 0) return "castles queenside";
+    if (san.indexOf("O-O") === 0) return "castles kingside";
+
+    var core = san.replace(/[+#]$/, "");
+    var promotion = "";
+    var promo = core.match(/=([QRBN])$/);
+    if (promo) {
+      promotion = ", promoting to a " + PIECE_NAMES[promo[1]];
+      core = core.slice(0, core.length - 2);
+    }
+
+    var piece = PIECE_NAMES[core[0]] || "pawn";
+    var captures = core.indexOf("x") !== -1;
+    var square = core.slice(-2);
+
+    var text = "the " + piece + (captures ? " captures on " : " moves to ") + square + promotion;
+    if (san.slice(-1) === "#") text += ", checkmate";
+    else if (san.slice(-1) === "+") text += ", with check";
+    return text;
   }
 
   function label(theme) {
@@ -384,6 +458,7 @@
           var text = number + m;
           return i === 0 ? '<span class="key">' + text + "</span>" : "<span>" + text + "</span>";
         }).join(" ");
+        el.plain.innerHTML = "<b>" + s.solutionSan[0] + "</b> — " + inWords(s.solutionSan[0]) + ".";
         el.analysis.innerHTML = 'Highlighted is the move to find. ' +
           '<a href="' + current.analysisUrl + '" target="_blank" rel="noopener">Open on Lichess</a> ' +
           'to play through it.';
@@ -396,6 +471,7 @@
       .catch(function (err) {
         el.reveal.disabled = false;
         el.reveal.textContent = "Show solution";
+        el.plain.textContent = "";
         el.analysis.textContent = err.message;
         el.solution.hidden = false;
       });
