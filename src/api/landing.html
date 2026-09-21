@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess puzzles</title>
+<meta name="description" content="Solve random chess puzzles by rating and theme, from the Lichess database. Also a free API.">
+<meta name="author" content="Mauri Ulloa">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf8; --fg: #1a1a1a; --muted: #5c5c5c; --line: #e3e0da;
+    --panel: #ffffff; --code-bg: #f2efe9; --accent: #3c6e47;
+    --light-sq: #edd6b0; --dark-sq: #b58863; --mark: #d7c04a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --fg: #e8e6e3; --muted: #9a9894; --line: #2c2e33;
+      --panel: #1c1e22; --code-bg: #1f2125; --accent: #8fc79a;
+      --light-sq: #d8c19c; --dark-sq: #a07953; --mark: #c4ac3f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); margin: 0;
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 52rem; margin: 0 auto; padding: 2.5rem 1rem 4rem; }
+  h1 { font-size: 1.7rem; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  .lede { color: var(--muted); margin: 0 0 1.8rem; }
+
+  /* ---- controls ---- */
+  .controls { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .field { display: flex; flex-direction: column; gap: .3rem; flex: 1 1 11rem; }
+  .field label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  select, button {
+    font: inherit; padding: .55rem .7rem; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  }
+  select { width: 100%; }
+  .actions { display: flex; gap: .6rem; align-items: flex-end; flex: 1 1 auto; }
+  button { cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  @media (prefers-color-scheme: dark) { button.primary { color: #12140f; } }
+
+  /* ---- board ---- */
+  .game { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  .board-wrap { flex: 1 1 22rem; max-width: 30rem; }
+  .board {
+    display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    user-select: none;
+  }
+  .sq {
+    display: flex; align-items: center; justify-content: center;
+    position: relative; font-size: min(7.5vw, 2.6rem); line-height: 1;
+  }
+  .sq.light { background: var(--light-sq); }
+  .sq.dark  { background: var(--dark-sq); }
+  .sq.mark::after {
+    content: ""; position: absolute; inset: 0;
+    background: var(--mark); opacity: .55; pointer-events: none;
+  }
+  .sq .piece { position: relative; z-index: 1; }
+  .sq .file, .sq .rank {
+    position: absolute; font-size: .58rem; font-weight: 600; line-height: 1;
+    opacity: .8; pointer-events: none; z-index: 2;
+  }
+  .sq .file { bottom: 2px; right: 3px; }
+  .sq .rank { top: 2px; left: 3px; }
+  .sq.light .file, .sq.light .rank { color: #7a5c38; }
+  .sq.dark  .file, .sq.dark  .rank { color: #f0dcc0; }
+  .piece.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 2px rgba(0,0,0,.6); }
+  .piece.b { color: #1a1a1a; text-shadow: 0 0 1px rgba(255,255,255,.35); }
+
+  /* ---- side panel ---- */
+  .panel { flex: 1 1 14rem; min-width: 13rem; }
+  .turn { font-size: 1.15rem; font-weight: 600; margin: 0 0 .15rem; }
+  .meta { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+  .tags { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 1.25rem; padding: 0; list-style: none; }
+  .tags li { font-size: .78rem; padding: .15rem .5rem; border: 1px solid var(--line);
+             border-radius: 999px; color: var(--muted); }
+  .solution {
+    border: 1px solid var(--line); border-radius: 8px; padding: .85rem 1rem;
+    background: var(--panel); margin-top: 1rem;
+  }
+  .solution h3 { margin: 0 0 .5rem; font-size: .78rem; text-transform: uppercase;
+                 letter-spacing: .04em; color: var(--muted); }
+  .moves { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .95rem;
+           margin: 0; line-height: 1.9; }
+  .moves .key { background: var(--mark); color: #1a1a1a; padding: .1em .4em;
+                border-radius: 4px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: .85rem; margin: .6rem 0 0; }
+  .status { color: var(--muted); font-style: italic; }
+  .error { color: #b3261e; }
+  @media (prefers-color-scheme: dark) { .error { color: #f2b8b5; } }
+
+  /* ---- developer section ---- */
+  .dev { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+  .dev h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .02em;
+            color: var(--muted); margin: 0 0 .75rem; }
+  .dev h3 { font-size: .95rem; margin: 1.75rem 0 .5rem; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .8rem 1rem; overflow-x: auto; margin: 0 0 1rem;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+  p code, li code { background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  ul { padding-left: 1.2rem; }
+  li { margin-bottom: .35rem; }
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: .88rem; }
+  footer p { margin: 0 0 .6rem; }
+  footer .by { color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chess puzzles</h1>
+  <p class="lede">__PUZZLES__ positions from real games. Pick a level, find the best move.</p>
+
+  <div class="controls">
+    <div class="field">
+      <label for="level">Level</label>
+      <select id="level">
+        <option value="">Any</option>
+        <option value="600,1100">Beginner &middot; 600–1100</option>
+        <option value="1100,1500">Easy &middot; 1100–1500</option>
+        <option value="1500,1900" selected>Intermediate &middot; 1500–1900</option>
+        <option value="1900,2300">Hard &middot; 1900–2300</option>
+        <option value="2300,3000">Expert &middot; 2300+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="theme">Theme</label>
+      <select id="theme">
+        <option value="">Any theme</option>
+        <optgroup label="Tactics">
+          <option value="fork">Fork</option>
+          <option value="pin">Pin</option>
+          <option value="skewer">Skewer</option>
+          <option value="discoveredAttack">Discovered attack</option>
+          <option value="doubleCheck">Double check</option>
+          <option value="hangingPiece">Hanging piece</option>
+          <option value="trappedPiece">Trapped piece</option>
+          <option value="deflection">Deflection</option>
+          <option value="attraction">Attraction</option>
+          <option value="sacrifice">Sacrifice</option>
+          <option value="intermezzo">In-between move</option>
+          <option value="zugzwang">Zugzwang</option>
+        </optgroup>
+        <optgroup label="Checkmate">
+          <option value="mateIn1">Mate in 1</option>
+          <option value="mateIn2">Mate in 2</option>
+          <option value="mateIn3">Mate in 3</option>
+          <option value="backRankMate">Back-rank mate</option>
+          <option value="smotheredMate">Smothered mate</option>
+        </optgroup>
+        <optgroup label="Phase">
+          <option value="opening">Opening</option>
+          <option value="middlegame">Middlegame</option>
+          <option value="endgame">Endgame</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="actions">
+      <button id="new" class="primary" type="button">New puzzle</button>
+    </div>
+  </div>
+
+  <div class="game">
+    <div class="board-wrap">
+      <div class="board" id="board" role="img" aria-label="Chess position"></div>
+    </div>
+
+    <div class="panel">
+      <p class="turn" id="turn">Loading…</p>
+      <p class="meta" id="meta"></p>
+      <ul class="tags" id="tags"></ul>
+
+      <button id="reveal" type="button" disabled>Show solution</button>
+
+      <div class="solution" id="solution" hidden>
+        <h3>Solution</h3>
+        <p class="moves" id="moves"></p>
+        <p class="hint" id="analysis"></p>
+      </div>
+    </div>
+  </div>
+
+  <section class="dev">
+    <h2>For developers</h2>
+    <p>
+      Everything above runs on a free public API. No key required.
+    </p>
+    <pre><code>curl "__BASE__/v1/puzzles/random?rating=1500&amp;themes=fork"</code></pre>
+    <ul>
+      <li><a href="/docs">Full API reference</a> and <a href="/openapi.json">OpenAPI schema</a>.</li>
+      <li><a href="/llms.txt">llms.txt</a>, and an MCP server at <code>__BASE__/mcp</code> for agents.</li>
+      <li>30 requests a minute per IP; a key raises that.</li>
+      <li><a href="https://github.com/mauricioulloa/chess-puzzle-api">Source on GitHub</a>, MIT licensed.</li>
+    </ul>
+
+    <h3>Feedback</h3>
+    <p>
+      This is early. If something is missing, awkward or wrong, please
+      <a href="https://github.com/mauricioulloa/chess-puzzle-api/issues">open an issue</a>.
+      Hearing what you are building is just as useful.
+    </p>
+  </section>
+
+  <footer>
+    <p class="by">
+      Built by <a href="https://mauriulloa.com">Mauri Ulloa</a> &middot;
+      <a href="https://github.com/mauricioulloa/chess-puzzle-api">Source on GitHub</a>, MIT licensed
+    </p>
+    <p>
+      Puzzle data from the
+      <a href="https://database.lichess.org/#puzzles">Lichess open database</a>,
+      released under CC0. Lichess is free and ad-free &mdash;
+      <a href="https://lichess.org/patron">consider supporting them</a>.
+      This project is not affiliated with or endorsed by Lichess.
+    </p>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // Filled glyphs for both colours, coloured by CSS. The outline variants
+  // (U+2654-9) render as hollow shapes that vanish on a light square in many
+  // fonts, so both sides use the solid ones.
+  var GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
+  var FILES = "abcdefgh";
+
+  var el = {
+    board: document.getElementById("board"),
+    turn: document.getElementById("turn"),
+    meta: document.getElementById("meta"),
+    tags: document.getElementById("tags"),
+    reveal: document.getElementById("reveal"),
+    solution: document.getElementById("solution"),
+    moves: document.getElementById("moves"),
+    analysis: document.getElementById("analysis"),
+    level: document.getElementById("level"),
+    theme: document.getElementById("theme"),
+    next: document.getElementById("new")
+  };
+
+  var current = null;
+
+  function squareName(fileIdx, rankIdx) {
+    return FILES[fileIdx] + (rankIdx + 1);
+  }
+
+  // Renders the placement field of a FEN. `flip` puts Black at the bottom so
+  // the side to move is always the side you are playing.
+  function draw(fen, flip, marks) {
+    var rows = fen.split(" ")[0].split("/");
+    var grid = [];
+    for (var r = 0; r < 8; r++) {
+      var row = [];
+      for (var i = 0; i < rows[r].length; i++) {
+        var ch = rows[r][i];
+        if (ch >= "1" && ch <= "8") {
+          for (var k = 0; k < +ch; k++) row.push(null);
+        } else {
+          row.push(ch);
+        }
+      }
+      grid.push(row);
+    }
+
+    var html = "";
+    for (var rank = 0; rank < 8; rank++) {
+      for (var file = 0; file < 8; file++) {
+        var rr = flip ? 7 - rank : rank;
+        var ff = flip ? 7 - file : file;
+        var piece = grid[rr][ff];
+        var name = squareName(ff, 7 - rr);
+        var shade = (rr + ff) % 2 === 0 ? "light" : "dark";
+        var marked = marks && marks.indexOf(name) !== -1 ? " mark" : "";
+        html += '<div class="sq ' + shade + marked + '">';
+        if (file === 0) html += '<span class="rank">' + name[1] + "</span>";
+        if (rank === 7) html += '<span class="file">' + name[0] + "</span>";
+        if (piece) {
+          var isWhite = piece === piece.toUpperCase();
+          html += '<span class="piece ' + (isWhite ? "w" : "b") + '">' +
+                  GLYPH[piece.toLowerCase()] + "</span>";
+        }
+        html += "</div>";
+      }
+    }
+    el.board.innerHTML = html;
+
+  }
+
+  function label(theme) {
+    // hangingPiece -> Hanging piece
+    return theme.replace(/([A-Z])/g, " $1").replace(/^./, function (c) {
+      return c.toUpperCase();
+    });
+  }
+
+  function query() {
+    var params = ["board=false"];
+    var level = el.level.value;
+    if (level) {
+      var parts = level.split(",");
+      params.push("ratingMin=" + parts[0], "ratingMax=" + parts[1]);
+    }
+    if (el.theme.value) params.push("themes=" + el.theme.value);
+    return "/v1/puzzles/random?" + params.join("&");
+  }
+
+  function setBusy(busy) {
+    el.next.disabled = busy;
+    el.next.textContent = busy ? "Loading…" : "New puzzle";
+  }
+
+  function load() {
+    setBusy(true);
+    el.solution.hidden = true;
+    el.reveal.disabled = true;
+    el.reveal.textContent = "Show solution";
+    el.turn.textContent = "Loading…";
+    el.turn.className = "turn status";
+    el.meta.textContent = "";
+    el.tags.innerHTML = "";
+
+    fetch(query())
+      .then(function (r) {
+        if (r.status === 429) throw new Error("Too many requests just now — wait a minute and try again.");
+        if (r.status === 404) throw new Error("No puzzle matches that combination. Try another level or theme.");
+        if (!r.ok) throw new Error("Could not load a puzzle (" + r.status + ").");
+        return r.json();
+      })
+      .then(function (p) {
+        current = p;
+        var from = p.initialMove.slice(0, 2), to = p.initialMove.slice(2, 4);
+        draw(p.positionFen, p.solverColor === "black", [from, to]);
+
+        el.turn.className = "turn";
+        el.turn.textContent = (p.solverColor === "white" ? "White" : "Black") + " to play";
+        el.meta.textContent = "Rating " + p.rating + " · they just played " + p.initialMoveSan;
+        el.tags.innerHTML = p.themes.map(function (t) {
+          return "<li>" + label(t) + "</li>";
+        }).join("");
+        el.reveal.disabled = false;
+        setBusy(false);
+      })
+      .catch(function (err) {
+        el.turn.className = "turn error";
+        el.turn.textContent = err.message;
+        el.board.innerHTML = "";
+        setBusy(false);
+      });
+  }
+
+  function reveal() {
+    if (!current) return;
+    el.reveal.disabled = true;
+    el.reveal.textContent = "Loading…";
+
+    fetch("/v1/puzzles/" + encodeURIComponent(current.id) + "/solution")
+      .then(function (r) {
+        if (!r.ok) throw new Error("Could not load the solution.");
+        return r.json();
+      })
+      .then(function (s) {
+        // The player's moves are at even indices; the odd ones are the
+        // opponent's replies. Only the first is the answer being asked for.
+        var blackFirst = current.solverColor === "black";
+        el.moves.innerHTML = s.solutionSan.map(function (m, i) {
+          // Index 0 is the player's move. With Black to play the line opens
+          // mid-move-pair, which chess notation writes as "1... Bxa3".
+          var ply = blackFirst ? i + 1 : i;
+          var number = "";
+          if (ply % 2 === 0) number = (ply / 2 + 1) + ". ";
+          else if (i === 0) number = "1... ";
+          var text = number + m;
+          return i === 0 ? '<span class="key">' + text + "</span>" : "<span>" + text + "</span>";
+        }).join(" ");
+        el.analysis.innerHTML = 'Highlighted is the move to find. ' +
+          '<a href="' + current.analysisUrl + '" target="_blank" rel="noopener">Open on Lichess</a> ' +
+          'to play through it.';
+        el.solution.hidden = false;
+        el.reveal.textContent = "Solution shown";
+
+        var from = s.solution[0].slice(0, 2), to = s.solution[0].slice(2, 4);
+        draw(current.positionFen, current.solverColor === "black", [from, to]);
+      })
+      .catch(function (err) {
+        el.reveal.disabled = false;
+        el.reveal.textContent = "Show solution";
+        el.analysis.textContent = err.message;
+        el.solution.hidden = false;
+      });
+  }
+
+  el.next.addEventListener("click", load);
+  el.reveal.addEventListener("click", reveal);
+  el.level.addEventListener("change", load);
+  el.theme.addEventListener("change", load);
+  load();
+})();
+</script>
+</body>
+</html>

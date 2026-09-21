@@ -1,7 +1,7 @@
-//! The two pages that exist for discovery rather than for data: a landing page
-//! for a person who pastes the bare domain into a browser, and `/llms.txt` for
-//! a model that wants to know what this is without parsing HTML or a 700-line
-//! OpenAPI document.
+//! The two pages meant for reading rather than parsing: the landing page,
+//! which is a working puzzle trainer so that someone who is not a programmer
+//! can actually use this, and `/llms.txt` for a model that wants to know what
+//! this is without wading through HTML or a 700-line OpenAPI document.
 
 /// Both pages quote real numbers from the loaded dataset rather than figures
 /// baked into a string that would quietly go stale on the next import.
@@ -11,132 +11,15 @@ pub struct SiteFacts {
     pub base_url: String,
 }
 
+/// The page lives in its own file rather than a `format!` string: it carries
+/// CSS and JavaScript, and every brace in them would otherwise have to be
+/// doubled.
+const LANDING: &str = include_str!("landing.html");
+
 pub fn landing(facts: &SiteFacts) -> String {
-    let SiteFacts {
-        puzzles,
-        themes,
-        base_url,
-    } = facts;
-    let puzzles = thousands(*puzzles);
-
-    format!(
-        r##"<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>chess-puzzle-api</title>
-<meta name="description" content="A free API serving random chess puzzles by rating and theme, from the Lichess puzzle database. Built by Mauri Ulloa.">
-<meta name="author" content="Mauri Ulloa">
-<style>
-  :root {{
-    color-scheme: light dark;
-    --bg: #fbfaf8; --fg: #1a1a1a; --muted: #5c5c5c;
-    --line: #e3e0da; --code-bg: #f2efe9; --accent: #3c6e47;
-  }}
-  @media (prefers-color-scheme: dark) {{
-    :root {{
-      --bg: #16171a; --fg: #e8e6e3; --muted: #9a9894;
-      --line: #2c2e33; --code-bg: #1f2125; --accent: #8fc79a;
-    }}
-  }}
-  * {{ box-sizing: border-box; }}
-  body {{
-    background: var(--bg); color: var(--fg); margin: 0;
-    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  }}
-  main {{ max-width: 46rem; margin: 0 auto; padding: 3rem 1rem 5rem; }}
-  h1 {{ font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -.02em; }}
-  h2 {{ font-size: 1.05rem; margin: 2.5rem 0 .75rem; letter-spacing: .02em;
-        text-transform: uppercase; color: var(--muted); }}
-  p {{ margin: 0 0 1rem; }}
-  .lede {{ font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }}
-  pre {{
-    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
-    padding: .9rem 1rem; overflow-x: auto; margin: 0 0 1rem;
-    font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }}
-  code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }}
-  p code, li code {{ background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }}
-  a {{ color: var(--accent); text-underline-offset: 2px; }}
-  ul {{ padding-left: 1.2rem; margin: 0 0 1rem; }}
-  li {{ margin-bottom: .4rem; }}
-  .stats {{ display: flex; gap: 2.5rem; flex-wrap: wrap; margin: 0 0 1rem; padding: 0; list-style: none; }}
-  .stats div {{ }}
-  .stats b {{ display: block; font-size: 1.5rem; font-weight: 600; }}
-  .stats span {{ color: var(--muted); font-size: .85rem; }}
-  footer {{ margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
-            color: var(--muted); font-size: .9rem; }}
-  footer p {{ margin: 0 0 .6rem; }}
-  footer .by {{ color: var(--fg); }}
-</style>
-</head>
-<body>
-<main>
-  <h1>chess-puzzle-api</h1>
-  <p class="lede">Random chess puzzles by rating and theme. No key required.</p>
-
-  <div class="stats">
-    <div><b>{puzzles}</b><span>puzzles</span></div>
-    <div><b>{themes}</b><span>tactical themes</span></div>
-    <div><b>CC0</b><span>public domain data</span></div>
-  </div>
-
-  <h2>Try it</h2>
-  <pre><code>curl "{base_url}/v1/puzzles/random?rating=1500&amp;themes=fork"</code></pre>
-  <p>
-    You get the position, its rating and its themes — but not the answer.
-    Ask for that separately with
-    <code>/v1/puzzles/{{id}}/solution</code>.
-  </p>
-
-  <h2>For people</h2>
-  <ul>
-    <li><a href="/docs">Full API reference</a>, rendered.</li>
-    <li>Every puzzle carries an <code>analysisUrl</code> that opens the position on a real board.</li>
-    <li>Moves come in SAN (<code>Qxe6+</code>) as well as UCI (<code>d1e6</code>).</li>
-  </ul>
-
-  <h2>For code</h2>
-  <ul>
-    <li><a href="/openapi.json">OpenAPI 3.1 description</a>, generated from the handlers.</li>
-    <li>Open CORS, gzipped JSON, stable field names.</li>
-    <li>30 requests a minute anonymously; a key raises that.</li>
-  </ul>
-
-  <h2>For language models</h2>
-  <ul>
-    <li><a href="/llms.txt">llms.txt</a> — what this API is, in plain text.</li>
-    <li><code>{base_url}/mcp</code> — an MCP server, so an agent can call it as a tool.</li>
-    <li><code>?board=true</code> draws the position as text, so a model need not decode a FEN.</li>
-  </ul>
-
-  <h2>Feedback</h2>
-  <p>
-    This is early. If a filter is missing, a field would save you a round trip,
-    or an error message did not help, please
-    <a href="https://github.com/mauricioulloa/chess-puzzle-api/issues">open an issue</a>.
-    Hearing what you are building is just as useful, and shapes what comes next.
-  </p>
-
-  <footer>
-    <p class="by">
-      Built by <a href="https://mauriulloa.com">Mauri Ulloa</a> ·
-      <a href="https://github.com/mauricioulloa/chess-puzzle-api">Source on GitHub</a>, MIT licensed
-    </p>
-    <p>
-      Puzzle data from the
-      <a href="https://database.lichess.org/#puzzles">Lichess open database</a>,
-      released under CC0. Lichess is free and ad-free —
-      <a href="https://lichess.org/patron">consider supporting them</a>.
-      This project is not affiliated with or endorsed by Lichess.
-    </p>
-  </footer>
-</main>
-</body>
-</html>
-"##
-    )
+    LANDING
+        .replace("__PUZZLES__", &thousands(facts.puzzles))
+        .replace("__BASE__", &facts.base_url)
 }
 
 /// Follows the llms.txt convention: an H1, a blockquote summary, then linked
@@ -248,8 +131,12 @@ mod tests {
     #[test]
     fn the_landing_page_quotes_the_live_dataset() {
         let html = landing(&facts());
-        assert!(html.contains("3,128,032"));
-        assert!(html.contains("73"));
+        assert!(
+            html.contains("3,128,032"),
+            "the puzzle count is substituted"
+        );
+        assert!(!html.contains("__PUZZLES__"), "no placeholder survives");
+        assert!(!html.contains("__BASE__"));
         assert!(html.contains("https://example.org/v1/puzzles/random"));
         // Attribution is a licence obligation in spirit, not an afterthought.
         assert!(html.contains("database.lichess.org"));
@@ -292,6 +179,42 @@ mod tests {
         // Without crowding out the data attribution, which is the one that
         // carries an obligation.
         assert!(text.contains("database.lichess.org"));
+    }
+
+    #[test]
+    fn the_landing_page_is_a_working_trainer() {
+        let html = landing(&facts());
+        // The controls a person needs, and nothing that assumes they can read
+        // a FEN.
+        for needle in [
+            "id=\"board\"",
+            "id=\"level\"",
+            "id=\"theme\"",
+            "Show solution",
+            "New puzzle",
+        ] {
+            assert!(html.contains(needle), "the trainer is missing {needle}");
+        }
+        assert!(
+            html.contains("/v1/puzzles/random?"),
+            "it has to call the API it documents"
+        );
+    }
+
+    #[test]
+    fn the_solution_is_hidden_until_asked_for() {
+        let html = landing(&facts());
+        // The panel ships collapsed; only the reveal button opens it. A page
+        // that rendered the answer alongside the position would defeat the
+        // whole point of serving solutions separately.
+        assert!(
+            html.contains("id=\"solution\" hidden"),
+            "the solution panel must start hidden"
+        );
+        assert!(
+            !html.contains("solutionSan\":"),
+            "no solution data may be baked into the page"
+        );
     }
 
     #[test]
