@@ -6,16 +6,18 @@ backed by the [Lichess puzzle database](https://database.lichess.org/#puzzles).
 Ask it for a puzzle at a given difficulty and tactical motif, get a FEN back.
 Ask it for the solution by puzzle id, get the moves.
 
-```
-GET /v1/puzzles/random?rating=1500&themes=fork
-GET /v1/puzzles/00008/solution
+**Live at [chess.mauriulloa.com](https://chess.mauriulloa.com)** — no key required.
+
+```bash
+curl "https://chess.mauriulloa.com/v1/puzzles/random?rating=1500&themes=fork"
+curl "https://chess.mauriulloa.com/v1/puzzles/00008/solution"
 ```
 
 By [Mauri Ulloa](https://mauriulloa.com).
 
 ## Status
 
-Early development. The importer is done; the HTTP layer is being built.
+In production at [chess.mauriulloa.com](https://chess.mauriulloa.com).
 
 - [x] Puzzle database importer and curation pipeline
       (3.1M puzzles, 73 themes, 633 MB, imports in 29s)
