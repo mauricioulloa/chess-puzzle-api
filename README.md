@@ -289,6 +289,11 @@ tools rather than being told to assemble HTTP requests from documentation.
 Point an MCP client at `https://your-host/mcp`. The server is stateless: no
 sessions to keep and no streams held open, so a restart drops nobody.
 
+Deploying on a real domain means setting `MCP_ALLOWED_HOSTS` to it. The
+transport refuses `Host` headers it does not recognise — DNS-rebinding
+protection — and knows only the loopback names out of the box, so without it
+`/mcp` returns 403 to everyone.
+
 What the tools return is deliberately not the HTTP response shape. A model
 wants different things from a program, so the board is always drawn rather
 than opt-in, SAN leads, the opponent's move is already applied, and every
@@ -388,6 +393,7 @@ cargo run --release -- serve
 | `--pool-size` | `POOL_SIZE` | `8` |
 | `--anonymous-limit` | `ANONYMOUS_LIMIT` | `30` |
 | `--trust-proxy-headers` | `TRUST_PROXY_HEADERS` | off |
+| `--mcp-allowed-hosts` | `MCP_ALLOWED_HOSTS` | — |
 
 Enable `--trust-proxy-headers` only when something in front actually sets the
 client address. Without a proxy, those headers are a caller's invention.

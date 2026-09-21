@@ -80,7 +80,7 @@ async fn request(harness: &Harness, uri: &str, key: Option<&str>) -> (StatusCode
     if let Some(key) = key {
         builder = builder.header("authorization", format!("Bearer {key}"));
     }
-    let response = routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth))
+    let response = routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth), &[])
         .oneshot(builder.body(Body::empty()).unwrap())
         .await
         .expect("request");
@@ -215,7 +215,7 @@ async fn a_malformed_authorization_header_falls_back_to_anonymous() {
 
     // No Bearer scheme at all: treat it as an anonymous caller rather than
     // failing, since a stray header should not break a public endpoint.
-    let response = routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth))
+    let response = routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth), &[])
         .oneshot(
             Request::builder()
                 .uri("/v1/puzzles/random")
@@ -395,7 +395,7 @@ async fn get_with_headers(harness: &Harness, headers: &[(&str, &str)]) -> Status
     for (name, value) in headers {
         builder = builder.header(*name, *value);
     }
-    routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth))
+    routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth), &[])
         .oneshot(builder.body(Body::empty()).unwrap())
         .await
         .expect("request")

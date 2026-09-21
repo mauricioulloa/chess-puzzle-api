@@ -64,7 +64,7 @@ fn permissive_auth() -> Arc<AuthState> {
 }
 
 async fn get(sampler: Arc<Sampler>, uri: &str) -> (StatusCode, Value) {
-    let response = routes::router(sampler, permissive_auth())
+    let response = routes::router(sampler, permissive_auth(), &[])
         .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .expect("request");
@@ -372,7 +372,7 @@ async fn the_board_is_opt_in() {
 // --- discovery -----------------------------------------------------------
 
 async fn raw(sampler: Arc<Sampler>, uri: &str) -> (StatusCode, String, String) {
-    let response = routes::router(sampler, permissive_auth())
+    let response = routes::router(sampler, permissive_auth(), &[])
         .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .expect("request");
@@ -423,7 +423,7 @@ async fn llms_txt_is_served_as_markdown() {
 #[tokio::test]
 async fn discovery_pages_quote_the_host_they_were_reached_on() {
     let (_dir, sampler) = build_sampler();
-    let response = routes::router(sampler, permissive_auth())
+    let response = routes::router(sampler, permissive_auth(), &[])
         .oneshot(
             Request::builder()
                 .uri("/llms.txt")

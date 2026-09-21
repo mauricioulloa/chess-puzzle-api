@@ -60,7 +60,7 @@ fn harness() -> (TempDir, Arc<Sampler>, Arc<AuthState>) {
 }
 
 async fn rpc(sampler: &Arc<Sampler>, auth: &Arc<AuthState>, body: Value) -> Value {
-    let response = routes::router(Arc::clone(sampler), Arc::clone(auth))
+    let response = routes::router(Arc::clone(sampler), Arc::clone(auth), &[])
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -285,4 +285,55 @@ async fn an_impossible_filter_is_an_error_not_an_empty_list() {
     // to change instead.
     let message = response["error"]["message"].as_str().expect("message");
     assert!(message.contains("Widen") || message.contains("drop a theme"));
+}
+
+#[tokio::test]
+async fn a_public_hostname_must_be_allowed_explicitly() {
+    let (_dir, sampler, auth) = harness();
+
+    let call = |hosts: Vec<String>, host: &'static str| {
+        let sampler = Arc::clone(&sampler);
+        let auth = Arc::clone(&auth);
+        async move {
+            routes::router(sampler, auth, &hosts)
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/mcp")
+                        .header("content-type", "application/json")
+                        .header("accept", "application/json, text/event-stream")
+                        .header("host", host)
+                        .body(Body::from(
+                            json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})
+                                .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .expect("request")
+                .status()
+        }
+    };
+
+    // The transport refuses hostnames it does not know: DNS-rebinding
+    // protection. A deployment on a real domain has to name itself, and
+    // forgetting to returns 403 to every caller — which is how this was found,
+    // in production.
+    assert_eq!(
+        call(vec![], "chess.mauriulloa.com").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            vec!["chess.mauriulloa.com".to_string()],
+            "chess.mauriulloa.com"
+        )
+        .await,
+        StatusCode::OK
+    );
+    // Naming one host must not open the door to any other.
+    assert_eq!(
+        call(vec!["chess.mauriulloa.com".to_string()], "evil.example.com").await,
+        StatusCode::FORBIDDEN
+    );
 }

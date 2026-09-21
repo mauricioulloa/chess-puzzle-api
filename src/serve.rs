@@ -41,6 +41,15 @@ pub struct ServeArgs {
     /// address and give themselves a private rate-limit budget.
     #[arg(long, env = "TRUST_PROXY_HEADERS")]
     pub trust_proxy_headers: bool,
+
+    /// Public hostnames the MCP endpoint should answer to, comma separated.
+    ///
+    /// The MCP transport refuses Host headers it does not recognise, which is
+    /// DNS-rebinding protection. It knows the loopback names already, so a
+    /// deployment on a real domain has to name itself here or /mcp returns
+    /// 403 to every caller.
+    #[arg(long, env = "MCP_ALLOWED_HOSTS", value_delimiter = ',')]
+    pub mcp_allowed_hosts: Vec<String>,
 }
 
 /// How often buffered usage counts are written and stale rate-limit windows
@@ -90,7 +99,13 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     tokio::spawn(maintenance(Arc::clone(&auth), Arc::clone(&store)));
 
     let state = Arc::new(Sampler::new(pool, catalog));
-    let app = routes::router(state, Arc::clone(&auth));
+    if !args.mcp_allowed_hosts.is_empty() {
+        tracing::info!(
+            "MCP endpoint answers to {}",
+            args.mcp_allowed_hosts.join(", ")
+        );
+    }
+    let app = routes::router(state, Arc::clone(&auth), &args.mcp_allowed_hosts);
 
     let listener = TcpListener::bind(&args.bind)
         .await

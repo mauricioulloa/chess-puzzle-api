@@ -12,7 +12,15 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
+/// Hostnames the MCP endpoint will answer to, beyond the loopback names
+/// rmcp allows out of the box.
+///
+/// This is DNS-rebinding protection: a browser tricked into resolving an
+/// attacker's domain to this server would still be refused, because the Host
+/// header would not match. It also means a public deployment must name itself
+/// or the endpoint returns 403 to everyone — which is exactly what happened
+/// the first time this shipped.
+pub fn router(state: SharedState, auth: Arc<AuthState>, mcp_allowed_hosts: &[String]) -> Router {
     let mcp_state = Arc::clone(&state);
     // Read-only and public, so any origin may call it from a browser.
     let cors = CorsLayer::new()
@@ -64,6 +72,9 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
     let mut mcp_config = StreamableHttpServerConfig::default();
     mcp_config.legacy_session_mode = false;
     mcp_config.json_response = true;
+    mcp_config
+        .allowed_hosts
+        .extend(mcp_allowed_hosts.iter().cloned());
 
     let mcp = StreamableHttpService::new(
         move || Ok(PuzzleTools::new(Arc::clone(&mcp_state))),

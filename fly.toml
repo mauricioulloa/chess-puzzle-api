@@ -19,6 +19,10 @@ primary_region = "gru"
   # world would look like it came from the proxy and share one rate limit.
   TRUST_PROXY_HEADERS = "true"
   RUST_LOG = "chess_puzzle_api=info"
+  # The MCP transport refuses Host headers it does not recognise, as
+  # DNS-rebinding protection, and only knows the loopback names by default.
+  # Without this the /mcp endpoint returns 403 to every caller.
+  MCP_ALLOWED_HOSTS = "chess.mauriulloa.com,chess-puzzle-api.fly.dev"
 
 [[mounts]]
   source = "puzzle_data"
