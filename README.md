@@ -20,6 +20,7 @@ Early development. The importer is done; the HTTP layer is being built.
 - [x] Query layer and HTTP endpoints
 - [x] API keys and rate limiting
 - [x] OpenAPI documentation
+- [x] Usage statistics, MCP server, discovery pages
 - [ ] Deployment
 
 ## Why it exists
@@ -269,6 +270,37 @@ npx @openapitools/openapi-generator-cli generate \
 Both endpoints sit outside the rate limiter, along with `/health`: reading the
 documentation should not spend anyone's quota.
 
+
+## For language models
+
+`POST /mcp` is a Model Context Protocol server, so an agent calls this as
+tools rather than being told to assemble HTTP requests from documentation.
+
+| Tool | Purpose |
+| --- | --- |
+| `get_random_puzzle` | a puzzle by rating and theme, without the answer |
+| `get_puzzle` | a specific puzzle by id, still without the answer |
+| `get_solution` | the answer, in SAN and UCI |
+| `list_themes` | the exact theme names, which are not guessable |
+| `get_dataset_stats` | size, rating range and provenance |
+
+Point an MCP client at `https://your-host/mcp`. The server is stateless: no
+sessions to keep and no streams held open, so a restart drops nobody.
+
+What the tools return is deliberately not the HTTP response shape. A model
+wants different things from a program, so the board is always drawn rather
+than opt-in, SAN leads, the opponent's move is already applied, and every
+description states the thing that is otherwise got wrong. Keeping the solution
+behind its own tool is the point: it lets an agent pose a puzzle to someone
+without knowing the answer until it asks.
+
+Also for models, without any MCP client:
+
+- `/llms.txt` describes the API in plain text.
+- `?board=true` on any puzzle endpoint draws the position, which is more
+  reliable to reason over than a FEN.
+- Errors name the tool or endpoint that fixes them — an unknown theme points
+  at `list_themes` rather than just refusing.
 
 ## Usage statistics
 

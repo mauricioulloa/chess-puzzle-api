@@ -1,14 +1,19 @@
 use crate::api::handlers::{self, SharedState};
 use crate::auth::middleware::{self, AuthState};
+use crate::mcp::PuzzleTools;
 use axum::Router;
 use axum::http::Method;
 use axum::routing::get;
+use rmcp::transport::streamable_http_server::StreamableHttpService;
+use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
+use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
+    let mcp_state = Arc::clone(&state);
     // Read-only and public, so any origin may call it from a browser.
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -52,7 +57,30 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
         .route("/docs", get(handlers::docs))
         .with_state(state);
 
+    // The MCP endpoint is a tower service rather than a handler, so it is
+    // nested rather than routed. Stateless: no sessions to keep, no SSE to
+    // hold open, which suits a read-only tool server and keeps a restart from
+    // dropping anyone's connection.
+    let mut mcp_config = StreamableHttpServerConfig::default();
+    mcp_config.legacy_session_mode = false;
+    mcp_config.json_response = true;
+
+    let mcp = StreamableHttpService::new(
+        move || Ok(PuzzleTools::new(Arc::clone(&mcp_state))),
+        Arc::new(NeverSessionManager::default()),
+        mcp_config,
+    );
+
+    let mcp_route = Router::new()
+        .nest_service("/mcp", mcp)
+        // An agent gets the same budget as anyone else.
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&auth),
+            middleware::enforce,
+        ));
+
     api.merge(usage)
+        .merge(mcp_route)
         .merge(public)
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())

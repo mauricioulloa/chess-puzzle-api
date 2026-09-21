@@ -8,5 +8,6 @@ pub mod auth;
 pub mod chess;
 pub mod db;
 pub mod import;
+pub mod mcp;
 pub mod serve;
 pub mod usage;
