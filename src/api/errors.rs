@@ -11,6 +11,11 @@ pub enum ApiError {
         hint: Option<String>,
     },
     NoMatch(String),
+    Unauthorized(String),
+    RateLimited {
+        retry_after: u64,
+        limit: u32,
+    },
     Internal(anyhow::Error),
 }
 
@@ -37,6 +42,32 @@ impl IntoResponse for ApiError {
                 message,
                 Some("Loosen the rating range or drop a theme.".to_string()),
             ),
+            ApiError::Unauthorized(message) => (
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                message,
+                Some("Keys are issued by opening an issue on the repository.".to_string()),
+            ),
+            ApiError::RateLimited { retry_after, limit } => {
+                // Retry-After is the one header a client can act on without
+                // reading the docs, so it is set even though the rate limit
+                // headers carry the same information.
+                let mut response = (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(ErrorBody {
+                        error: "rate_limited",
+                        message: format!("Rate limit of {limit} requests per minute exceeded."),
+                        hint: Some(format!(
+                            "Retry in {retry_after}s, or use an API key for a higher limit."
+                        )),
+                    }),
+                )
+                    .into_response();
+                if let Ok(value) = retry_after.to_string().parse() {
+                    response.headers_mut().insert("retry-after", value);
+                }
+                return response;
+            }
             ApiError::Internal(err) => {
                 tracing::error!("unhandled error: {err:#}");
                 (

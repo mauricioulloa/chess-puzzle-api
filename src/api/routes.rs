@@ -1,28 +1,42 @@
 use crate::api::handlers::{self, SharedState};
+use crate::auth::middleware::{self, AuthState};
 use axum::Router;
 use axum::http::Method;
 use axum::routing::get;
+use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub fn router(state: SharedState) -> Router {
+pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
     // Read-only and public, so any origin may call it from a browser.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET]);
 
-    Router::new()
-        // Static segments take priority over `{id}`, so `/random` is not
-        // swallowed by the lookup route. `route_conflicts` pins that down.
+    // Static segments take priority over `{id}`, so `/random` is not swallowed
+    // by the lookup route. `random_is_not_swallowed_by_the_id_route` pins that.
+    let api = Router::new()
         .route("/v1/puzzles/random", get(handlers::random))
         .route("/v1/puzzles/{id}", get(handlers::by_id))
         .route("/v1/puzzles/{id}/solution", get(handlers::solution))
         .route("/v1/themes", get(handlers::themes))
         .route("/v1/stats", get(handlers::stats))
+        .route_layer(axum::middleware::from_fn_with_state(
+            auth,
+            middleware::enforce,
+        ))
+        .with_state(Arc::clone(&state));
+
+    // Health checks are what a host polls to decide whether to keep the
+    // process alive. Rate limiting them would make a busy minute look like an
+    // outage, so they sit outside the layer.
+    let public = Router::new()
         .route("/health", get(handlers::health))
+        .with_state(state);
+
+    api.merge(public)
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(cors)
-        .with_state(state)
 }

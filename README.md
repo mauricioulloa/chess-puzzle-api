@@ -18,7 +18,7 @@ Early development. The importer is done; the HTTP layer is being built.
 - [x] Puzzle database importer and curation pipeline
       (3.1M puzzles, 73 themes, 633 MB, imports in 29s)
 - [x] Query layer and HTTP endpoints
-- [ ] API keys and rate limiting
+- [x] API keys and rate limiting
 - [ ] OpenAPI documentation
 - [ ] Deployment
 
@@ -195,6 +195,52 @@ surfaces as a `400` instead of silently widening the search.
 }
 ```
 
+## Authentication and rate limits
+
+The API is open: no key is needed. A key only raises the ceiling.
+
+| | Requests per minute |
+| --- | --- |
+| anonymous, per IP | 30 |
+| with a key | set per key, 600 by default |
+
+Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+`X-RateLimit-Reset` (seconds until the window rolls over) and
+`X-RateLimit-Scope` (`anonymous` or `key`). A `429` adds `Retry-After`.
+
+Send a key as a bearer token:
+
+```bash
+curl -H "Authorization: Bearer cpa_..." \
+     "http://localhost:8080/v1/puzzles/random?rating=1500"
+```
+
+An unrecognised or revoked key returns `401` rather than quietly falling back
+to the anonymous quota, because silently ignoring a key the caller believes is
+working produces baffling `429`s later. A malformed `Authorization` header with
+no bearer token is treated as anonymous.
+
+`/health` sits outside the limiter: a host polling it should never be told the
+service is over quota.
+
+### Getting a key
+
+Open an issue on this repository saying what you are building. Keys are issued
+by hand.
+
+### Issuing keys
+
+```bash
+chess-puzzle-api keys create --label "someone's tactics trainer" --rate-limit 600
+chess-puzzle-api keys list
+chess-puzzle-api keys revoke --label "someone's tactics trainer"
+```
+
+Only the SHA-256 of a key is stored, so `create` prints it exactly once and
+nobody — including you — can recover it afterwards. A leaked backup of `api.db`
+hands over no working keys. Revocation takes effect on the next request.
+
+
 ## Running the API
 
 ```bash
@@ -204,8 +250,15 @@ cargo run --release -- serve
 | Flag | Environment variable | Default |
 | --- | --- | --- |
 | `--db` | `PUZZLES_DB` | `data/puzzles.db` |
+| `--api-db` | `API_DB` | `data/api.db` |
 | `--bind` | `BIND_ADDR` | `127.0.0.1:8080` |
 | `--pool-size` | `POOL_SIZE` | `8` |
+| `--anonymous-limit` | `ANONYMOUS_LIMIT` | `30` |
+| `--trust-proxy-headers` | `TRUST_PROXY_HEADERS` | off |
+
+Enable `--trust-proxy-headers` only behind a proxy that overwrites
+`X-Forwarded-For`. Without one, any caller can reset their own rate limit by
+inventing the header.
 
 Measured on the full 3.1M-puzzle database, server-side, excluding client
 overhead:

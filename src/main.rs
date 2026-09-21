@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chess_puzzle_api::{import, serve};
+use chess_puzzle_api::{auth, import, serve};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -20,6 +20,9 @@ enum Command {
 
     /// Run the HTTP API
     Serve(serve::ServeArgs),
+
+    /// Issue, list and revoke API keys
+    Keys(auth::cli::KeysArgs),
 }
 
 #[tokio::main]
@@ -35,5 +38,6 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Import(args) => import::run(args).await,
         Command::Serve(args) => serve::run(args).await,
+        Command::Keys(args) => auth::cli::run(args),
     }
 }

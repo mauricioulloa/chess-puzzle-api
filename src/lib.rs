@@ -4,6 +4,7 @@
 //! the query layer can be exercised directly from integration tests.
 
 pub mod api;
+pub mod auth;
 pub mod db;
 pub mod import;
 pub mod serve;

@@ -6,12 +6,16 @@ use axum::http::{Request, StatusCode};
 use chess_puzzle_api::api::catalog::Catalog;
 use chess_puzzle_api::api::query::{PuzzleFilter, Sampler, ThemesMode};
 use chess_puzzle_api::api::routes;
+use chess_puzzle_api::auth::keys::KeyStore;
+use chess_puzzle_api::auth::middleware::AuthState;
+use chess_puzzle_api::auth::ratelimit::RateLimiter;
 use chess_puzzle_api::db;
 use chess_puzzle_api::import::load::{self, Filters};
 use http_body_util::BodyExt;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
@@ -46,8 +50,20 @@ fn build_sampler() -> (TempDir, Arc<Sampler>) {
     (dir, Arc::new(Sampler::new(pool, catalog)))
 }
 
+/// A limit high enough that these tests never trip it; rate limiting has its
+/// own suite.
+fn permissive_auth() -> Arc<AuthState> {
+    Arc::new(AuthState {
+        store: Arc::new(KeyStore::in_memory().expect("key store")),
+        limiter: Arc::new(RateLimiter::new()),
+        usage: Mutex::new(HashMap::new()),
+        anonymous_limit: u32::MAX,
+        trust_proxy_headers: false,
+    })
+}
+
 async fn get(sampler: Arc<Sampler>, uri: &str) -> (StatusCode, Value) {
-    let response = routes::router(sampler)
+    let response = routes::router(sampler, permissive_auth())
         .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .expect("request");
