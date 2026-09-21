@@ -97,9 +97,13 @@ async fn no_endpoint_but_solution_reveals_the_answer() {
             !serialised.contains("solution"),
             "{uri} leaked a solution field"
         );
-        // 00008's answer starts e6e7; initialMove f2g3 is the opponent's move
-        // and is allowed to appear.
+        // 00008's answer starts e6e7 / Rxe7. The opponent's move (f2g3, Bxg3)
+        // is not the answer and is allowed to appear.
         assert!(!serialised.contains("e6e7"), "{uri} leaked solution moves");
+        assert!(
+            !serialised.contains("Rxe7"),
+            "{uri} leaked the solution in SAN"
+        );
     }
 }
 
@@ -305,4 +309,61 @@ fn solver_colour_is_the_opposite_of_the_fen_side_to_move() {
     assert!(row.fen.contains(" b "));
     assert_eq!(row.solver_color(), "white");
     assert_eq!(row.initial_move(), "f2g3");
+}
+
+// --- notation ------------------------------------------------------------
+
+#[tokio::test]
+async fn puzzles_carry_san_alongside_uci() {
+    let (_dir, sampler) = build_sampler();
+    let (status, body) = get(sampler, "/v1/puzzles/00008").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["initialMove"], "f2g3",
+        "UCI stays for existing clients"
+    );
+    assert_eq!(body["initialMoveSan"], "Bxg3");
+    // `fen` remains the dataset's, before the opponent moved; `positionFen` is
+    // what the player actually faces.
+    assert!(body["fen"].as_str().unwrap().contains(" b "));
+    assert!(body["positionFen"].as_str().unwrap().contains(" w "));
+    assert!(
+        body["analysisUrl"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://lichess.org/analysis/")
+    );
+}
+
+#[tokio::test]
+async fn the_solution_comes_in_both_notations() {
+    let (_dir, sampler) = build_sampler();
+    let (status, body) = get(sampler, "/v1/puzzles/00008/solution").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["solution"],
+        serde_json::json!(["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"])
+    );
+    assert_eq!(
+        body["solutionSan"],
+        serde_json::json!(["Rxe7", "Qb1+", "Nc1", "Qxc1+", "Qxc1"]),
+        "SAN must line up index for index with UCI"
+    );
+}
+
+#[tokio::test]
+async fn the_board_is_opt_in() {
+    let (_dir, sampler) = build_sampler();
+
+    let (_, without) = get(Arc::clone(&sampler), "/v1/puzzles/00008").await;
+    assert!(without["board"].is_null(), "the board is the largest field");
+
+    let (_, with) = get(sampler, "/v1/puzzles/00008?board=true").await;
+    let board = with["board"].as_str().expect("board");
+    assert_eq!(board.lines().count(), 9);
+    assert!(board.ends_with("a b c d e f g h"));
+    // The bishop has already taken on g3 in the position handed to the player.
+    assert!(board.lines().nth(5).unwrap().contains('b'));
 }

@@ -113,6 +113,15 @@
               "type": "integer",
               "minimum": 0
             }
+          },
+          {
+            "name": "board",
+            "in": "query",
+            "description": "Include the position drawn as text. Off by default because it is by\nfar the largest field in the response.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -183,6 +192,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "board",
+            "in": "query",
+            "description": "Include the position drawn as text.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -470,6 +488,20 @@
           "openingTags"
         ],
         "properties": {
+          "analysisUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opens the position on a real board, for a person."
+          },
+          "board": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The position drawn as text. Present only when `board=true` is asked\nfor, since it is by far the largest field."
+          },
           "fen": {
             "type": "string",
             "description": "The position as Lichess stores it: *before* the opponent's move."
@@ -487,6 +519,13 @@
             "type": "string",
             "description": "The opponent's move, in UCI. Apply it to `fen` to reach the position\nthe player is asked to solve."
           },
+          "initialMoveSan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The opponent's move in SAN, e.g. `Bxg3`. Chess literature is written\nin SAN, so this is what people and language models read fluently."
+          },
           "nbPlays": {
             "type": "integer",
             "format": "int64"
@@ -500,6 +539,13 @@
           "popularity": {
             "type": "integer",
             "format": "int64"
+          },
+          "positionFen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The position *after* `initialMove`: what the player actually faces.\n`fen` is kept as the dataset stores it so existing clients do not break."
           },
           "rating": {
             "type": "integer",
@@ -563,6 +609,16 @@
               "type": "string"
             },
             "description": "The answer, in UCI, starting after `initialMove`."
+          },
+          "solutionSan": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The same moves in SAN, aligned index for index with `solution`."
           }
         }
       },

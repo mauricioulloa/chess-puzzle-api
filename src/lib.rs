@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod chess;
 pub mod db;
 pub mod import;
 pub mod serve;

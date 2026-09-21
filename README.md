@@ -77,6 +77,12 @@ The dataset is repetitive in ways worth exploiting:
 - **Opening tags** are a small vocabulary, and four out of five puzzles carry
   none at all, so they are interned into a lookup table.
 
+Notation is computed per request rather than stored. Replaying a puzzle
+through the rules engine takes about 2.5 microseconds against a query that
+costs hundreds, so precomputing SAN would add tens of megabytes to save
+nothing. Replaying all 3,128,032 puzzles takes under eight seconds, and every
+one of them is legal chess.
+
 ### Curation
 
 The full dump contains every puzzle ever generated, including unpopular and
@@ -121,6 +127,7 @@ Returns one random puzzle, without its solution.
 | `excludeThemes` | — | comma-separated themes to rule out |
 | `opening` | — | opening tag, e.g. `Sicilian_Defense` |
 | `count` | — | return a batch of up to 50 instead of one puzzle |
+| `board` | `false` | include the position drawn as text |
 
 ```bash
 curl "http://localhost:8080/v1/puzzles/random?rating=1500&themes=fork"
@@ -136,6 +143,9 @@ curl "http://localhost:8080/v1/puzzles/random?rating=1500&themes=fork"
   "ratingDeviation": 76,
   "popularity": 95,
   "nbPlays": 4455,
+  "initialMoveSan": "Kh3",
+  "positionFen": "6k1/6p1/p3p3/3pP3/1P2nQ2/P5PK/1P2q3/7R b - - 2 37",
+  "analysisUrl": "https://lichess.org/analysis/6k1/6p1/p3p3/3pP3/1P2nQ2/P5PK/1P2q3/7R_b_-_-_2_37",
   "themes": [
     "endgame",
     "short",
@@ -148,8 +158,30 @@ curl "http://localhost:8080/v1/puzzles/random?rating=1500&themes=fork"
 ```
 
 `fen` is the position as Lichess stores it, *before* the opponent's move.
-Apply `initialMove` to reach the position to solve. `solverColor` already
-accounts for that move, so it is the colour the player is about to move.
+`positionFen` is the same position after `initialMove`, which is what the
+player actually faces; `fen` is kept unchanged so existing clients do not
+break. `solverColor` is the colour about to move in `positionFen`.
+
+Every move comes in both notations. UCI (`g2h3`) is what a program wants. SAN
+(`Kh3`) is what chess literature is written in, which makes it what people
+read at a glance and what language models handle most reliably — a model
+reasoning over `e6e7 b2b1 b3c1` does noticeably worse than over
+`Rxe7 Qb1+ Nc1`, and UCI cannot express check or capture at all.
+
+`board=true` adds the position drawn as text, which saves a model from
+decoding a FEN in its head:
+
+```
+8 r . . . . . . k
+7 p p . . r . . p
+6 . . . . R p . Q
+5 . . . p . . . .
+4 . . . . . . . .
+3 . N . P . . b .
+2 P q P . . . P P
+1 . . . . . . . K
+  a b c d e f g h
+```
 
 With `count`, the response becomes `{"count": n, "puzzles": [...]}` so each
 spelling has one stable shape.
@@ -164,7 +196,8 @@ The same object for a specific puzzle. Still no solution.
 {
   "id": "00008",
   "initialMove": "f2g3",
-  "solution": ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"]
+  "solution": ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"],
+  "solutionSan": ["Rxe7", "Qb1+", "Nc1", "Qxc1+", "Qxc1"]
 }
 ```
 

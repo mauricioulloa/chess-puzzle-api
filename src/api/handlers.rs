@@ -31,6 +31,17 @@ pub struct RandomParams {
     exclude_themes: Option<String>,
     opening: Option<String>,
     count: Option<usize>,
+    /// Include the position drawn as text. Off by default because it is by
+    /// far the largest field in the response.
+    board: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PuzzleParams {
+    /// Include the position drawn as text.
+    board: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -271,7 +282,7 @@ pub async fn random(
 
     let puzzles: Vec<PuzzleResponse> = rows
         .iter()
-        .map(|row| PuzzleResponse::new(row, &sampler.catalog))
+        .map(|row| PuzzleResponse::new(row, &sampler.catalog, params.board.unwrap_or(false)))
         .collect();
 
     // A bare object when one puzzle was asked for, a batch envelope when
@@ -291,7 +302,7 @@ pub async fn random(
     get,
     path = "/v1/puzzles/{id}",
     tag = "puzzles",
-    params(("id" = String, Path, description = "Lichess puzzle id, e.g. `00008`")),
+    params(("id" = String, Path, description = "Lichess puzzle id, e.g. `00008`"), PuzzleParams),
     responses(
         (status = 200, description = "The puzzle, without its solution", body = PuzzleResponse),
         (status = 404, description = "No puzzle carries that id", body = ErrorBody),
@@ -303,6 +314,7 @@ pub async fn random(
 pub async fn by_id(
     State(sampler): State<SharedState>,
     Path(id): Path<String>,
+    Query(params): Query<PuzzleParams>,
 ) -> ApiResult<Json<PuzzleResponse>> {
     let row = {
         let sampler = Arc::clone(&sampler);
@@ -310,7 +322,11 @@ pub async fn by_id(
         blocking(move || sampler.by_puzzle_id(&id)).await?
     }
     .ok_or_else(|| ApiError::NotFound(format!("No puzzle with id `{id}`.")))?;
-    Ok(Json(PuzzleResponse::new(&row, &sampler.catalog)))
+    Ok(Json(PuzzleResponse::new(
+        &row,
+        &sampler.catalog,
+        params.board.unwrap_or(false),
+    )))
 }
 
 #[utoipa::path(

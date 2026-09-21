@@ -3,6 +3,7 @@
 
 use crate::api::catalog::Catalog;
 use crate::api::query::PuzzleRow;
+use crate::chess;
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -21,6 +22,21 @@ pub struct PuzzleResponse {
     pub rating_deviation: i64,
     pub popularity: i64,
     pub nb_plays: i64,
+    /// The opponent's move in SAN, e.g. `Bxg3`. Chess literature is written
+    /// in SAN, so this is what people and language models read fluently.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_move_san: Option<String>,
+    /// The position *after* `initialMove`: what the player actually faces.
+    /// `fen` is kept as the dataset stores it so existing clients do not break.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_fen: Option<String>,
+    /// The position drawn as text. Present only when `board=true` is asked
+    /// for, since it is by far the largest field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    /// Opens the position on a real board, for a person.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_url: Option<String>,
     pub themes: Vec<String>,
     pub opening_tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,12 +44,32 @@ pub struct PuzzleResponse {
 }
 
 impl PuzzleResponse {
-    pub fn new(row: &PuzzleRow, catalog: &Catalog) -> Self {
+    /// Replaying the moves through the rules engine costs about 2.5
+    /// microseconds against a query that costs hundreds, so the notation is
+    /// always computed. Should a puzzle ever fail to replay, the response
+    /// degrades to the plain UCI form rather than failing the request.
+    pub fn new(row: &PuzzleRow, catalog: &Catalog, with_board: bool) -> Self {
+        let annotated = match chess::annotate(&row.fen, &row.moves) {
+            Ok(annotated) => Some(annotated),
+            Err(err) => {
+                tracing::warn!("could not annotate {}: {err:#}", row.puzzle_id);
+                None
+            }
+        };
+
         Self {
             id: row.puzzle_id.clone(),
             fen: row.fen.clone(),
             initial_move: row.initial_move().to_string(),
             solver_color: row.solver_color(),
+            initial_move_san: annotated.as_ref().map(|a| a.initial_move_san.clone()),
+            position_fen: annotated.as_ref().map(|a| a.position_fen.clone()),
+            board: with_board
+                .then(|| annotated.as_ref().map(|a| a.board_ascii.clone()))
+                .flatten(),
+            analysis_url: annotated
+                .as_ref()
+                .map(|a| chess::analysis_url(&a.position_fen)),
             rating: row.rating,
             rating_deviation: row.rating_deviation,
             popularity: row.popularity,
@@ -62,14 +98,19 @@ pub struct SolutionResponse {
     pub initial_move: String,
     /// The answer, in UCI, starting after `initialMove`.
     pub solution: Vec<String>,
+    /// The same moves in SAN, aligned index for index with `solution`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub solution_san: Option<Vec<String>>,
 }
 
 impl SolutionResponse {
     pub fn new(row: &PuzzleRow) -> Self {
+        let annotated = chess::annotate(&row.fen, &row.moves).ok();
         Self {
             id: row.puzzle_id.clone(),
             initial_move: row.initial_move().to_string(),
             solution: row.solution().into_iter().map(str::to_string).collect(),
+            solution_san: annotated.map(|a| a.solution_san),
         }
     }
 }
