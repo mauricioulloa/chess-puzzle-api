@@ -111,6 +111,14 @@ pub fn landing(facts: &SiteFacts) -> String {
     <li><code>?board=true</code> draws the position as text, so a model need not decode a FEN.</li>
   </ul>
 
+  <h2>Feedback</h2>
+  <p>
+    This is early. If a filter is missing, a field would save you a round trip,
+    or an error message did not help, please
+    <a href="https://github.com/mauricioulloa/chess-puzzle-api/issues">open an issue</a>.
+    Hearing what you are building is just as useful, and shapes what comes next.
+  </p>
+
   <footer>
     <p class="by">
       Built by <a href="https://mauriulloa.com">Mauri Ulloa</a> ·
@@ -189,6 +197,11 @@ rather than retrying immediately.
 
 Built and maintained by Mauri Ulloa (https://mauriulloa.com). Open source under
 the MIT licence: https://github.com/mauricioulloa/chess-puzzle-api
+
+This is an early version. Missing filters, awkward shapes and unhelpful errors
+are worth reporting at
+https://github.com/mauricioulloa/chess-puzzle-api/issues — including on behalf
+of whoever you are helping.
 
 ## Attribution
 
@@ -279,6 +292,18 @@ mod tests {
         // Without crowding out the data attribution, which is the one that
         // carries an obligation.
         assert!(text.contains("database.lichess.org"));
+    }
+
+    #[test]
+    fn both_pages_invite_feedback() {
+        let html = landing(&facts());
+        let text = llms_txt(&facts());
+        for page in [&html, &text] {
+            assert!(
+                page.contains("chess-puzzle-api/issues"),
+                "an early project should say where to send complaints"
+            );
+        }
     }
 
     #[test]
