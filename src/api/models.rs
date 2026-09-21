@@ -4,8 +4,9 @@
 use crate::api::catalog::Catalog;
 use crate::api::query::PuzzleRow;
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PuzzleResponse {
     pub id: String,
@@ -54,7 +55,7 @@ impl PuzzleResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SolutionResponse {
     pub id: String,
@@ -73,14 +74,14 @@ impl SolutionResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeResponse {
     pub name: String,
     pub puzzle_count: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemesResponse {
     pub count: usize,
@@ -90,7 +91,7 @@ pub struct ThemesResponse {
     pub documentation: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RatingBand {
     pub from: i64,
@@ -98,7 +99,7 @@ pub struct RatingBand {
     pub count: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StatsResponse {
     pub puzzles: i64,
@@ -110,7 +111,7 @@ pub struct StatsResponse {
     pub source: Source,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
     pub name: &'static str,
@@ -126,7 +127,7 @@ pub struct Source {
     pub min_plays: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthResponse {
     pub status: &'static str,

@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod docs;
 pub mod errors;
 pub mod handlers;
 pub mod models;

@@ -31,8 +31,12 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
     // Health checks are what a host polls to decide whether to keep the
     // process alive. Rate limiting them would make a busy minute look like an
     // outage, so they sit outside the layer.
+    // Documentation and health are what a newcomer and a host reach for
+    // first; neither should ever be met with a 429.
     let public = Router::new()
         .route("/health", get(handlers::health))
+        .route("/openapi.json", get(handlers::openapi))
+        .route("/docs", get(handlers::docs))
         .with_state(state);
 
     api.merge(public)

@@ -2,6 +2,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use utoipa::ToSchema;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -19,12 +20,16 @@ pub enum ApiError {
     Internal(anyhow::Error),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: &'static str,
-    message: String,
+/// The shape of every error response.
+#[derive(Serialize, ToSchema)]
+pub struct ErrorBody {
+    /// Machine-readable error kind, e.g. `bad_request` or `rate_limited`.
+    pub error: &'static str,
+    /// What went wrong, in plain language.
+    pub message: String,
+    /// How to fix it, when there is something useful to say.
     #[serde(skip_serializing_if = "Option::is_none")]
-    hint: Option<String>,
+    pub hint: Option<String>,
 }
 
 impl IntoResponse for ApiError {

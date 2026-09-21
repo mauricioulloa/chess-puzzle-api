@@ -1,10 +1,11 @@
-use crate::api::errors::{ApiError, ApiResult};
+use crate::api::errors::{ApiError, ApiResult, ErrorBody};
 use crate::api::models::*;
 use crate::api::query::{PuzzleFilter, RATING_CEILING, RATING_FLOOR, Sampler, ThemesMode};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::{IntoParams, ToSchema};
 
 pub type SharedState = Arc<Sampler>;
 
@@ -15,7 +16,8 @@ const THEME_DOCS: &str = "https://lichess.org/training/themes";
 /// `deny_unknown_fields` turns a typo into a 400 instead of a silently ignored
 /// filter, which is the difference between "this theme has no puzzles" and
 /// "you spelled the parameter wrong".
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RandomParams {
     rating: Option<i64>,
@@ -31,7 +33,7 @@ pub struct RandomParams {
     count: Option<usize>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PuzzleBatch {
     count: usize,
@@ -222,6 +224,19 @@ fn describe(filter: &PuzzleFilter) -> String {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/puzzles/random",
+    tag = "puzzles",
+    params(RandomParams),
+    responses(
+        (status = 200, description = "A random puzzle. With `count`, a batch envelope instead.", body = PuzzleResponse),
+        (status = 404, description = "The filters describe an empty slice of the dataset", body = ErrorBody),
+        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
 pub async fn random(
     State(sampler): State<SharedState>,
     Query(params): Query<RandomParams>,
@@ -272,6 +287,19 @@ pub async fn random(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/puzzles/{id}",
+    tag = "puzzles",
+    params(("id" = String, Path, description = "Lichess puzzle id, e.g. `00008`")),
+    responses(
+        (status = 200, description = "The puzzle, without its solution", body = PuzzleResponse),
+        (status = 404, description = "No puzzle carries that id", body = ErrorBody),
+        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
 pub async fn by_id(
     State(sampler): State<SharedState>,
     Path(id): Path<String>,
@@ -285,6 +313,19 @@ pub async fn by_id(
     Ok(Json(PuzzleResponse::new(&row, &sampler.catalog)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/puzzles/{id}/solution",
+    tag = "puzzles",
+    params(("id" = String, Path, description = "Lichess puzzle id, e.g. `00008`")),
+    responses(
+        (status = 200, description = "The moves that solve the puzzle", body = SolutionResponse),
+        (status = 404, description = "No puzzle carries that id", body = ErrorBody),
+        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
 pub async fn solution(
     State(sampler): State<SharedState>,
     Path(id): Path<String>,
@@ -298,6 +339,17 @@ pub async fn solution(
     Ok(Json(SolutionResponse::new(&row)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/themes",
+    tag = "reference",
+    responses(
+        (status = 200, description = "Every theme, with how many puzzles carry it", body = ThemesResponse),
+        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
 pub async fn themes(State(sampler): State<SharedState>) -> Json<ThemesResponse> {
     let themes: Vec<ThemeResponse> = sampler
         .catalog
@@ -316,6 +368,17 @@ pub async fn themes(State(sampler): State<SharedState>) -> Json<ThemesResponse> 
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/stats",
+    tag = "reference",
+    responses(
+        (status = 200, description = "Dataset size, rating distribution and provenance", body = StatsResponse),
+        (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
+        (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+    )
+)]
 pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsResponse>> {
     let stats = {
         let sampler = Arc::clone(&sampler);
@@ -350,9 +413,26 @@ pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsRe
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "reference",
+    responses((status = 200, description = "The service is up and the dataset is loaded", body = HealthResponse))
+)]
 pub async fn health(State(sampler): State<SharedState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         puzzles: sampler.total_puzzles(),
     })
+}
+
+/// The generated OpenAPI 3.1 description.
+pub async fn openapi() -> Json<utoipa::openapi::OpenApi> {
+    use utoipa::OpenApi;
+    Json(crate::api::docs::ApiDoc::openapi())
+}
+
+/// A rendered reference, for humans.
+pub async fn docs() -> axum::response::Html<&'static str> {
+    axum::response::Html(crate::api::docs::DOCS_HTML)
 }

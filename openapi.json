@@ -1,0 +1,707 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "chess-puzzle-api",
+    "description": "Random chess puzzles by rating and theme, from the Lichess puzzle database (CC0). The `fen` of a puzzle is the position *before* the opponent's move: apply `initialMove` to reach the position to solve. Solutions are served only by the solution endpoint.",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "The service is up and the dataset is loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/puzzles/random": {
+      "get": {
+        "tags": [
+          "puzzles"
+        ],
+        "operationId": "random",
+        "parameters": [
+          {
+            "name": "rating",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "tolerance",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "ratingMin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "ratingMax",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "themes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "themesMode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "excludeThemes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "opening",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A random puzzle. With `count`, a batch envelope instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PuzzleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter was invalid or unrecognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The filters describe an empty slice of the dataset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/puzzles/{id}": {
+      "get": {
+        "tags": [
+          "puzzles"
+        ],
+        "operationId": "by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Lichess puzzle id, e.g. `00008`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The puzzle, without its solution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PuzzleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter was invalid or unrecognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No puzzle carries that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/puzzles/{id}/solution": {
+      "get": {
+        "tags": [
+          "puzzles"
+        ],
+        "operationId": "solution",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Lichess puzzle id, e.g. `00008`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The moves that solve the puzzle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolutionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter was invalid or unrecognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No puzzle carries that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stats": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "operationId": "stats",
+        "responses": {
+          "200": {
+            "description": "Dataset size, rating distribution and provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter was invalid or unrecognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/themes": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "operationId": "themes",
+        "responses": {
+          "200": {
+            "description": "Every theme, with how many puzzles carry it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter was invalid or unrecognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is unknown or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorBody": {
+        "type": "object",
+        "description": "The shape of every error response.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Machine-readable error kind, e.g. `bad_request` or `rate_limited`."
+          },
+          "hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How to fix it, when there is something useful to say."
+          },
+          "message": {
+            "type": "string",
+            "description": "What went wrong, in plain language."
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "puzzles"
+        ],
+        "properties": {
+          "puzzles": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "PuzzleResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "fen",
+          "initialMove",
+          "solverColor",
+          "rating",
+          "ratingDeviation",
+          "popularity",
+          "nbPlays",
+          "themes",
+          "openingTags"
+        ],
+        "properties": {
+          "fen": {
+            "type": "string",
+            "description": "The position as Lichess stores it: *before* the opponent's move."
+          },
+          "gameUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "initialMove": {
+            "type": "string",
+            "description": "The opponent's move, in UCI. Apply it to `fen` to reach the position\nthe player is asked to solve."
+          },
+          "nbPlays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "openingTags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "popularity": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rating": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ratingDeviation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "solverColor": {
+            "type": "string",
+            "description": "The colour the solver plays, already accounting for `initialMove`."
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RatingBand": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "from": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "to": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SolutionResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "initialMove",
+          "solution"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "initialMove": {
+            "type": "string"
+          },
+          "solution": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The answer, in UCI, starting after `initialMove`."
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "license"
+        ],
+        "properties": {
+          "importedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "license": {
+            "type": "string"
+          },
+          "minPlays": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minPopularity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "sourceRows": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "required": [
+          "puzzles",
+          "themes",
+          "openings",
+          "ratingMin",
+          "ratingMax",
+          "ratingDistribution",
+          "source"
+        ],
+        "properties": {
+          "openings": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "puzzles": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ratingDistribution": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RatingBand"
+            }
+          },
+          "ratingMax": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ratingMin": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "themes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ThemeResponse": {
+        "type": "object",
+        "required": [
+          "name",
+          "puzzleCount"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "puzzleCount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ThemesResponse": {
+        "type": "object",
+        "required": [
+          "count",
+          "themes",
+          "documentation"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "documentation": {
+            "type": "string",
+            "description": "Lichess documents what each theme means; duplicating their wording here\nwould mean copying strings from a differently licensed project."
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThemeResponse"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "puzzles",
+      "description": "Fetching puzzles and their solutions"
+    },
+    {
+      "name": "reference",
+      "description": "Theme catalogue, dataset statistics and health"
+    }
+  ]
+}

@@ -19,7 +19,7 @@ Early development. The importer is done; the HTTP layer is being built.
       (3.1M puzzles, 73 themes, 633 MB, imports in 29s)
 - [x] Query layer and HTTP endpoints
 - [x] API keys and rate limiting
-- [ ] OpenAPI documentation
+- [x] OpenAPI documentation
 - [ ] Deployment
 
 ## Why it exists
@@ -194,6 +194,33 @@ surfaces as a `400` instead of silently widening the search.
   "hint": "GET /v1/themes lists all 73 valid themes."
 }
 ```
+
+## Documentation
+
+| Endpoint | What it is |
+| --- | --- |
+| `/docs` | a rendered API reference |
+| `/openapi.json` | the OpenAPI 3.1 description, for client generation |
+
+The spec is generated from the handler annotations, so it cannot describe a
+route that does not exist. A copy lives at [`openapi.json`](openapi.json) for
+tooling that would rather not start the server; a test fails if it drifts from
+the code, and regenerating is:
+
+```bash
+cargo run -- openapi > openapi.json
+```
+
+Generating a client, for example:
+
+```bash
+npx @openapitools/openapi-generator-cli generate \
+  -i https://your-host/openapi.json -g typescript-fetch -o ./client
+```
+
+Both endpoints sit outside the rate limiter, along with `/health`: reading the
+documentation should not spend anyone's quota.
+
 
 ## Authentication and rate limits
 

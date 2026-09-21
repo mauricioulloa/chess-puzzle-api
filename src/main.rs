@@ -23,6 +23,9 @@ enum Command {
 
     /// Issue, list and revoke API keys
     Keys(auth::cli::KeysArgs),
+
+    /// Print the OpenAPI description to stdout
+    Openapi,
 }
 
 #[tokio::main]
@@ -39,5 +42,9 @@ async fn main() -> Result<()> {
         Command::Import(args) => import::run(args).await,
         Command::Serve(args) => serve::run(args).await,
         Command::Keys(args) => auth::cli::run(args),
+        Command::Openapi => {
+            println!("{}", chess_puzzle_api::api::docs::spec_json()?);
+            Ok(())
+        }
     }
 }
