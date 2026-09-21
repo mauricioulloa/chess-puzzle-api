@@ -17,7 +17,7 @@ Early development. The importer is done; the HTTP layer is being built.
 
 - [x] Puzzle database importer and curation pipeline
       (3.1M puzzles, 73 themes, 633 MB, imports in 29s)
-- [ ] Query layer and HTTP endpoints
+- [x] Query layer and HTTP endpoints
 - [ ] API keys and rate limiting
 - [ ] OpenAPI documentation
 - [ ] Deployment
@@ -101,6 +101,123 @@ slice you want.
 Rows are also dropped when they are structurally unusable: fewer than two moves
 (a puzzle needs the opponent's move plus at least one move of solution), or a
 FEN that is not six space-separated fields.
+
+## API
+
+All responses are JSON. Every endpoint is a `GET`, CORS is open, and responses
+are gzipped.
+
+### `GET /v1/puzzles/random`
+
+Returns one random puzzle, without its solution.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `rating` | — | target rating; combined with `tolerance` into a band |
+| `tolerance` | `100` | half-width of the band around `rating` |
+| `ratingMin` / `ratingMax` | — | explicit band, as an alternative to `rating` |
+| `themes` | — | comma-separated theme names (`theme` also accepted) |
+| `themesMode` | `all` | `all` requires every theme, `any` requires one |
+| `excludeThemes` | — | comma-separated themes to rule out |
+| `opening` | — | opening tag, e.g. `Sicilian_Defense` |
+| `count` | — | return a batch of up to 50 instead of one puzzle |
+
+```bash
+curl "http://localhost:8080/v1/puzzles/random?rating=1500&themes=fork"
+```
+
+```json
+{
+  "id": "YoKhQ",
+  "fen": "6k1/6p1/p3p3/3pP3/1P2nQ2/P5P1/1P2q1K1/7R w - - 1 37",
+  "initialMove": "g2h3",
+  "solverColor": "black",
+  "rating": 1548,
+  "ratingDeviation": 76,
+  "popularity": 95,
+  "nbPlays": 4455,
+  "themes": [
+    "endgame",
+    "short",
+    "crushing",
+    "fork"
+  ],
+  "openingTags": [],
+  "gameUrl": "https://lichess.org/uc3ICm4X#73"
+}
+```
+
+`fen` is the position as Lichess stores it, *before* the opponent's move.
+Apply `initialMove` to reach the position to solve. `solverColor` already
+accounts for that move, so it is the colour the player is about to move.
+
+With `count`, the response becomes `{"count": n, "puzzles": [...]}` so each
+spelling has one stable shape.
+
+### `GET /v1/puzzles/{id}`
+
+The same object for a specific puzzle. Still no solution.
+
+### `GET /v1/puzzles/{id}/solution`
+
+```json
+{
+  "id": "00008",
+  "initialMove": "f2g3",
+  "solution": ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"]
+}
+```
+
+### `GET /v1/themes`
+
+All 73 themes with how many puzzles carry each. Start here: theme names are
+what `themes` and `excludeThemes` expect, and an unknown name is a `400`, not
+an empty result.
+
+### `GET /v1/stats`
+
+Dataset size, rating distribution in 200-point bands, and which dump the
+database was built from.
+
+### `GET /health`
+
+### Errors
+
+Errors carry a machine-readable `error`, a human `message` and sometimes a
+`hint`. Unknown query parameters are rejected rather than ignored, so a typo
+surfaces as a `400` instead of silently widening the search.
+
+```json
+{
+  "error": "bad_request",
+  "message": "Unknown themes: frok",
+  "hint": "GET /v1/themes lists all 73 valid themes."
+}
+```
+
+## Running the API
+
+```bash
+cargo run --release -- serve
+```
+
+| Flag | Environment variable | Default |
+| --- | --- | --- |
+| `--db` | `PUZZLES_DB` | `data/puzzles.db` |
+| `--bind` | `BIND_ADDR` | `127.0.0.1:8080` |
+| `--pool-size` | `POOL_SIZE` | `8` |
+
+Measured on the full 3.1M-puzzle database, server-side, excluding client
+overhead:
+
+| Query | Median | p99 |
+| --- | --- | --- |
+| no filters | 0.15 ms | 0.26 ms |
+| rating band | 1.97 ms | 3.74 ms |
+| rating and theme | 0.47 ms | 0.80 ms |
+| three themes with an exclusion | 0.28 ms | 0.67 ms |
+| batch of 20 | 0.33 ms | 0.40 ms |
+
 
 ## Building the puzzle database
 

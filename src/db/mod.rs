@@ -1,3 +1,5 @@
+pub mod pool;
+
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;

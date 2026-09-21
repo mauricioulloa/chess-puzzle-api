@@ -3,7 +3,7 @@
 /// Lichess game URLs are uniformly `https://lichess.org/{game_id}[/black]#{ply}`.
 /// Storing the constant prefix three million times is pure waste, so the URL is
 /// taken apart on import and rebuilt on the way out.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameRef {
     pub game_id: String,
     pub ply: i64,

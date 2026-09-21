@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chess_puzzle_api::import;
+use chess_puzzle_api::{import, serve};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -17,6 +17,9 @@ struct Cli {
 enum Command {
     /// Build the puzzle database from the Lichess dump
     Import(import::ImportArgs),
+
+    /// Run the HTTP API
+    Serve(serve::ServeArgs),
 }
 
 #[tokio::main]
@@ -31,5 +34,6 @@ async fn main() -> Result<()> {
 
     match Cli::parse().command {
         Command::Import(args) => import::run(args).await,
+        Command::Serve(args) => serve::run(args).await,
     }
 }

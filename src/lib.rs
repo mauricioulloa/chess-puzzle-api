@@ -3,5 +3,7 @@
 //! The crate is split into a library and a thin CLI binary so the importer and
 //! the query layer can be exercised directly from integration tests.
 
+pub mod api;
 pub mod db;
 pub mod import;
+pub mod serve;
