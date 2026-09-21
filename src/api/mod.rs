@@ -3,5 +3,6 @@ pub mod docs;
 pub mod errors;
 pub mod handlers;
 pub mod models;
+pub mod pages;
 pub mod query;
 pub mod routes;

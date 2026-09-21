@@ -34,6 +34,8 @@ pub fn router(state: SharedState, auth: Arc<AuthState>) -> Router {
     // Documentation and health are what a newcomer and a host reach for
     // first; neither should ever be met with a 429.
     let public = Router::new()
+        .route("/", get(handlers::landing))
+        .route("/llms.txt", get(handlers::llms_txt))
         .route("/health", get(handlers::health))
         .route("/openapi.json", get(handlers::openapi))
         .route("/docs", get(handlers::docs))

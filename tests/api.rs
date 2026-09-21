@@ -367,3 +367,83 @@ async fn the_board_is_opt_in() {
     // The bishop has already taken on g3 in the position handed to the player.
     assert!(board.lines().nth(5).unwrap().contains('b'));
 }
+
+// --- discovery -----------------------------------------------------------
+
+async fn raw(sampler: Arc<Sampler>, uri: &str) -> (StatusCode, String, String) {
+    let response = routes::router(sampler, permissive_auth())
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .expect("request");
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (
+        status,
+        content_type,
+        String::from_utf8_lossy(&bytes).to_string(),
+    )
+}
+
+#[tokio::test]
+async fn the_root_serves_a_landing_page_rather_than_a_404() {
+    let (_dir, sampler) = build_sampler();
+    let (status, content_type, body) = raw(sampler, "/").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("text/html"));
+    assert!(body.contains("chess-puzzle-api"));
+    assert!(body.contains("/docs") && body.contains("/openapi.json"));
+}
+
+#[tokio::test]
+async fn llms_txt_is_served_as_markdown() {
+    let (_dir, sampler) = build_sampler();
+    let (status, content_type, body) = raw(sampler, "/llms.txt").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        content_type.starts_with("text/markdown"),
+        "got {content_type}"
+    );
+    assert!(body.starts_with("# chess-puzzle-api"));
+}
+
+#[tokio::test]
+async fn discovery_pages_quote_the_host_they_were_reached_on() {
+    let (_dir, sampler) = build_sampler();
+    let response = routes::router(sampler, permissive_auth())
+        .oneshot(
+            Request::builder()
+                .uri("/llms.txt")
+                .header("host", "puzzles.example.org")
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("request");
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&bytes);
+
+    assert!(
+        body.contains("https://puzzles.example.org/v1/puzzles/random"),
+        "examples must work where the caller actually is"
+    );
+    assert!(!body.contains("localhost"));
+}

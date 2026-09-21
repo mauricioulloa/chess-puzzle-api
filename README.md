@@ -228,6 +228,21 @@ surfaces as a `400` instead of silently widening the search.
 }
 ```
 
+## Discovery
+
+| Endpoint | Audience |
+| --- | --- |
+| `/` | a landing page for whoever pastes the bare domain into a browser |
+| `/llms.txt` | what this API is, in plain text, for a language model |
+| `/docs` | the rendered reference |
+| `/openapi.json` | the machine-readable schema |
+
+Both `/` and `/llms.txt` quote the host they were reached on, so the examples
+they print work where the reader actually is rather than on one blessed
+deployment. `llms.txt` leads with the thing a model most needs to be told:
+that `fen` is the position *before* the opponent's move, and that presenting
+it to a player unchanged shows the wrong position.
+
 ## Documentation
 
 | Endpoint | What it is |

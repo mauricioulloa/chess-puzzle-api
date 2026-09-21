@@ -452,3 +452,54 @@ pub async fn openapi() -> Json<utoipa::openapi::OpenApi> {
 pub async fn docs() -> axum::response::Html<&'static str> {
     axum::response::Html(crate::api::docs::DOCS_HTML)
 }
+
+/// Reconstructs the URL callers reached us on, so the landing page and
+/// llms.txt quote working examples instead of a hard-coded hostname that is
+/// wrong everywhere except one deployment.
+fn base_url(headers: &axum::http::HeaderMap) -> String {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("localhost:8080");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or(
+            if host.starts_with("localhost") || host.starts_with("127.0.0.1") {
+                "http"
+            } else {
+                "https"
+            },
+        );
+    format!("{scheme}://{host}")
+}
+
+fn site_facts(sampler: &Sampler, headers: &axum::http::HeaderMap) -> crate::api::pages::SiteFacts {
+    crate::api::pages::SiteFacts {
+        puzzles: sampler.total_puzzles(),
+        themes: sampler.catalog.len(),
+        base_url: base_url(headers),
+    }
+}
+
+/// What a person sees when they paste the bare domain into a browser.
+pub async fn landing(
+    State(sampler): State<SharedState>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Html<String> {
+    axum::response::Html(crate::api::pages::landing(&site_facts(&sampler, &headers)))
+}
+
+/// The llms.txt convention: what this API is, in plain text.
+pub async fn llms_txt(
+    State(sampler): State<SharedState>,
+    headers: axum::http::HeaderMap,
+) -> ([(axum::http::HeaderName, &'static str); 1], String) {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/markdown; charset=utf-8",
+        )],
+        crate::api::pages::llms_txt(&site_facts(&sampler, &headers)),
+    )
+}
