@@ -1,0 +1,8 @@
+target
+data
+.git
+.github
+tests
+*.db
+*.csv.zst
+README.md
