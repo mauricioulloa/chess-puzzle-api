@@ -5,7 +5,8 @@
 # pushing the whole dataset, and the data survives every release.
 
 app = "chess-puzzle-api"
-primary_region = "scl"
+# Santiago is not a Fly region; Sao Paulo is the closest one to Chile.
+primary_region = "gru"
 
 [build]
 

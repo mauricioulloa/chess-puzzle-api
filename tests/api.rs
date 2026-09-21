@@ -448,3 +448,27 @@ async fn discovery_pages_quote_the_host_they_were_reached_on() {
     );
     assert!(!body.contains("localhost"));
 }
+
+#[test]
+fn dataset_statistics_are_computed_once() {
+    let (_dir, sampler) = build_sampler();
+
+    let first = sampler.stats().expect("stats");
+    let second = sampler.stats().expect("stats again");
+
+    // Same answer, and the second call must not re-run the GROUP BY: the
+    // dataset is read-only for the life of the process.
+    assert_eq!(first.puzzles, second.puzzles);
+    assert_eq!(first.bands.len(), second.bands.len());
+    assert!(!first.bands.is_empty());
+
+    let repeated = std::time::Instant::now();
+    for _ in 0..1000 {
+        sampler.stats().expect("cached");
+    }
+    assert!(
+        repeated.elapsed() < std::time::Duration::from_millis(500),
+        "a thousand cached reads should be effectively free, took {:?}",
+        repeated.elapsed()
+    );
+}

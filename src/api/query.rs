@@ -17,7 +17,7 @@ use rand::RngExt;
 use rusqlite::types::Value;
 use rusqlite::{Connection, Row, params_from_iter};
 use std::collections::{HashMap, HashSet};
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 /// How many rejections to tolerate before falling back to an exact query.
 /// Generous, because each attempt costs about a millisecond.
@@ -148,6 +148,11 @@ pub struct Sampler {
     pool: SqlitePool,
     pub catalog: Catalog,
     counts: RwLock<HashMap<ScanKey, i64>>,
+    /// The dataset is read-only for the life of the process, so its statistics
+    /// are computed once. Recomputing them per request meant a GROUP BY over
+    /// three million rows: 600 ms of server time for an answer that cannot
+    /// change until the database is rebuilt and the process restarted.
+    stats: OnceLock<DatasetStats>,
 }
 
 impl Sampler {
@@ -156,6 +161,7 @@ impl Sampler {
             pool,
             catalog,
             counts: RwLock::new(HashMap::new()),
+            stats: OnceLock::new(),
         }
     }
 
@@ -535,6 +541,14 @@ impl Sampler {
     }
 
     pub fn stats(&self) -> Result<DatasetStats> {
+        if let Some(cached) = self.stats.get() {
+            return Ok(cached.clone());
+        }
+        let computed = self.compute_stats()?;
+        Ok(self.stats.get_or_init(|| computed).clone())
+    }
+
+    fn compute_stats(&self) -> Result<DatasetStats> {
         let conn = self.connection()?;
 
         let openings: i64 = conn
