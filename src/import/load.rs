@@ -1,5 +1,6 @@
 use crate::db;
-use anyhow::{Context, Result};
+use crate::import::parse::{self, MAX_THEMES, ThemeMask};
+use anyhow::{Context, Result, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -57,6 +58,8 @@ pub struct ImportStats {
     pub rejected_plays: u64,
     pub rejected_malformed: u64,
     pub theme_count: u64,
+    pub opening_count: u64,
+    pub unparsed_game_urls: u64,
 }
 
 /// Rejects rows we could never serve correctly. Cheap structural checks only;
@@ -115,6 +118,7 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
 
     let mut stats = ImportStats::default();
     let mut theme_ids: HashMap<String, i64> = HashMap::new();
+    let mut opening_ids: HashMap<String, i64> = HashMap::new();
     let mut next_id: i64 = 0;
     let mut chunk: Vec<Record> = Vec::with_capacity(CHUNK);
     let bar = progress_bar();
@@ -157,7 +161,14 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         chunk.push(record);
 
         if chunk.len() >= CHUNK {
-            insert_chunk(conn, &mut chunk, &mut next_id, &mut theme_ids)?;
+            insert_chunk(
+                conn,
+                &mut chunk,
+                &mut next_id,
+                &mut theme_ids,
+                &mut opening_ids,
+                &mut stats.unparsed_game_urls,
+            )?;
         }
         if filters
             .limit
@@ -167,19 +178,30 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         }
     }
 
-    insert_chunk(conn, &mut chunk, &mut next_id, &mut theme_ids)?;
+    insert_chunk(
+        conn,
+        &mut chunk,
+        &mut next_id,
+        &mut theme_ids,
+        &mut opening_ids,
+        &mut stats.unparsed_game_urls,
+    )?;
     bar.set_position(stats.rows_read);
     bar.finish_with_message(format!("{} kept", stats.accepted));
 
     stats.theme_count = theme_ids.len() as u64;
+    stats.opening_count = opening_ids.len() as u64;
     Ok(stats)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_chunk(
     conn: &mut Connection,
     chunk: &mut Vec<Record>,
     next_id: &mut i64,
     theme_ids: &mut HashMap<String, i64>,
+    opening_ids: &mut HashMap<String, i64>,
+    unparsed_game_urls: &mut u64,
 ) -> Result<()> {
     if chunk.is_empty() {
         return Ok(());
@@ -189,11 +211,14 @@ fn insert_chunk(
         let mut insert_puzzle = tx.prepare_cached(
             "INSERT INTO puzzles
                  (id, puzzle_id, fen, moves, rating, rating_deviation,
-                  popularity, nb_plays, themes, opening_tags, game_url)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  popularity, nb_plays, theme_mask_lo, theme_mask_hi,
+                  opening_id, game_id, game_ply, game_black)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )?;
         let mut insert_theme =
             tx.prepare_cached("INSERT INTO themes (name) VALUES (?1) RETURNING id")?;
+        let mut insert_opening =
+            tx.prepare_cached("INSERT INTO openings (tags) VALUES (?1) RETURNING id")?;
         let mut insert_link = tx.prepare_cached(
             "INSERT OR IGNORE INTO puzzle_themes (theme_id, rating, puzzle_id)
              VALUES (?1, ?2, ?3)",
@@ -202,6 +227,59 @@ fn insert_chunk(
         for record in chunk.drain(..) {
             *next_id += 1;
             let id = *next_id;
+
+            // Intern themes first so the mask and the junction rows agree.
+            let mut mask = ThemeMask::default();
+            let mut theme_row_ids: Vec<i64> = Vec::new();
+            for theme in record.themes.split_whitespace() {
+                let theme_id = match theme_ids.get(theme) {
+                    Some(id) => *id,
+                    None => {
+                        if theme_ids.len() >= MAX_THEMES {
+                            bail!(
+                                "the dump has more than {MAX_THEMES} distinct themes, \
+                                 which no longer fit the 128-bit theme mask"
+                            );
+                        }
+                        let new_id: i64 = insert_theme
+                            .query_row((theme,), |row| row.get(0))
+                            .with_context(|| format!("interning theme {theme}"))?;
+                        theme_ids.insert(theme.to_string(), new_id);
+                        new_id
+                    }
+                };
+                mask.set(theme_id);
+                theme_row_ids.push(theme_id);
+            }
+
+            let opening_id = if record.opening_tags.is_empty() {
+                None
+            } else {
+                Some(match opening_ids.get(&record.opening_tags) {
+                    Some(id) => *id,
+                    None => {
+                        let new_id: i64 = insert_opening
+                            .query_row((&record.opening_tags,), |row| row.get(0))
+                            .with_context(|| {
+                                format!("interning opening {}", record.opening_tags)
+                            })?;
+                        opening_ids.insert(record.opening_tags.clone(), new_id);
+                        new_id
+                    }
+                })
+            };
+
+            // A URL we cannot rebuild is not worth discarding a puzzle over;
+            // the API simply omits the link for that row.
+            let game = parse::parse_game_url(&record.game_url);
+            if game.is_none() {
+                *unparsed_game_urls += 1;
+            }
+            let (game_id, game_ply, game_black) = match &game {
+                Some(game) => (game.game_id.as_str(), game.ply, game.black),
+                None => ("", 0, false),
+            };
+
             insert_puzzle
                 .execute((
                     id,
@@ -212,23 +290,16 @@ fn insert_chunk(
                     record.rating_deviation,
                     record.popularity,
                     record.nb_plays,
-                    &record.themes,
-                    &record.opening_tags,
-                    &record.game_url,
+                    mask.lo,
+                    mask.hi,
+                    opening_id,
+                    game_id,
+                    game_ply,
+                    game_black,
                 ))
                 .with_context(|| format!("inserting puzzle {}", record.puzzle_id))?;
 
-            for theme in record.themes.split_whitespace() {
-                let theme_id = match theme_ids.get(theme) {
-                    Some(id) => *id,
-                    None => {
-                        let new_id: i64 = insert_theme
-                            .query_row((theme,), |row| row.get(0))
-                            .with_context(|| format!("interning theme {theme}"))?;
-                        theme_ids.insert(theme.to_string(), new_id);
-                        new_id
-                    }
-                };
+            for theme_id in theme_row_ids {
                 insert_link.execute((theme_id, record.rating, id))?;
             }
         }

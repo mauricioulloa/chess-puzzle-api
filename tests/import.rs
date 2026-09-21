@@ -96,19 +96,70 @@ fn themes_are_interned_and_counted() {
 }
 
 #[test]
-fn junction_rows_match_the_denormalised_column() {
+fn the_theme_mask_agrees_with_the_junction_table() {
     let (conn, _) = import_fixture(default_filters());
 
-    let from_column: i64 = scalar(
-        &conn,
-        "SELECT SUM(LENGTH(TRIM(themes)) - LENGTH(REPLACE(TRIM(themes), ' ', '')) + 1)
-         FROM puzzles WHERE TRIM(themes) <> ''",
-    );
-    let from_junction: i64 = scalar(&conn, "SELECT COUNT(*) FROM puzzle_themes");
+    // Every junction row must have its bit set in the puzzle's mask, and the
+    // popcount of the mask must equal the number of junction rows. If these
+    // two representations ever drift, filtering silently returns wrong results.
+    let mismatches: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM puzzle_themes pt
+             JOIN puzzles p ON p.id = pt.puzzle_id
+             WHERE CASE
+                 WHEN pt.theme_id <= 64
+                     THEN (p.theme_mask_lo >> (pt.theme_id - 1)) & 1
+                     ELSE (p.theme_mask_hi >> (pt.theme_id - 65)) & 1
+             END = 0",
+            [],
+            |row| row.get(0),
+        )
+        .expect("mask cross-check");
+    assert_eq!(mismatches, 0, "every junction row must be set in the mask");
+
+    let links: i64 = scalar(&conn, "SELECT COUNT(*) FROM puzzle_themes");
+    let bits_set: i64 = conn
+        .query_row(
+            "WITH RECURSIVE bit(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM bit WHERE n < 63)
+             SELECT SUM(((p.theme_mask_lo >> b.n) & 1) + ((p.theme_mask_hi >> b.n) & 1))
+             FROM puzzles p, bit b",
+            [],
+            |row| row.get(0),
+        )
+        .expect("popcount");
     assert_eq!(
-        from_column, from_junction,
-        "the junction table and the denormalised column must agree"
+        bits_set, links,
+        "mask popcount must equal the junction rows"
     );
+}
+
+#[test]
+fn game_urls_survive_the_round_trip() {
+    let (conn, _) = import_fixture(default_filters());
+
+    let rebuilt: String = conn
+        .query_row(
+            "SELECT 'https://lichess.org/' || game_id
+                    || CASE game_black WHEN 1 THEN '/black' ELSE '' END
+                    || '#' || game_ply
+             FROM puzzles WHERE puzzle_id = '00008'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("puzzle 00008");
+    assert_eq!(rebuilt, "https://lichess.org/787zsVup/black#48");
+}
+
+#[test]
+fn openings_are_interned_and_nullable() {
+    let (conn, _) = import_fixture(default_filters());
+
+    // The fixture carries no opening tags at all.
+    let with_opening: i64 = scalar(
+        &conn,
+        "SELECT COUNT(*) FROM puzzles WHERE opening_id IS NOT NULL",
+    );
+    assert_eq!(with_opening, 0);
 }
 
 #[test]

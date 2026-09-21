@@ -11,13 +11,14 @@ pub mod meta_keys {
     pub const IMPORTED_AT: &str = "imported_at";
     pub const PUZZLE_COUNT: &str = "puzzle_count";
     pub const THEME_COUNT: &str = "theme_count";
+    pub const OPENING_COUNT: &str = "opening_count";
     pub const MIN_POPULARITY: &str = "filter_min_popularity";
     pub const MIN_PLAYS: &str = "filter_min_plays";
     pub const ROWS_READ: &str = "source_rows_read";
     pub const SCHEMA_VERSION: &str = "schema_version";
 }
 
-pub const SCHEMA_VERSION: &str = "1";
+pub const SCHEMA_VERSION: &str = "2";
 
 /// Opens a connection tuned for the bulk import: durability is pointless here
 /// because a failed import is thrown away and re-run from the source dump.

@@ -1,5 +1,6 @@
 mod download;
 pub mod load;
+pub mod parse;
 
 use crate::db::{self, meta_keys};
 use anyhow::{Context, Result, bail};
@@ -118,6 +119,7 @@ pub async fn run(args: ImportArgs) -> Result<()> {
         (meta_keys::IMPORTED_AT, jiff::Timestamp::now().to_string()),
         (meta_keys::PUZZLE_COUNT, stats.accepted.to_string()),
         (meta_keys::THEME_COUNT, stats.theme_count.to_string()),
+        (meta_keys::OPENING_COUNT, stats.opening_count.to_string()),
         (meta_keys::ROWS_READ, stats.rows_read.to_string()),
         (
             meta_keys::MIN_POPULARITY,
@@ -148,9 +150,13 @@ fn report(args: &ImportArgs, stats: &ImportStats, elapsed: std::time::Duration) 
     println!("  source rows        {}", stats.rows_read);
     println!("  puzzles kept       {} ({kept_pct:.1}%)", stats.accepted);
     println!("  themes             {}", stats.theme_count);
+    println!("  openings           {}", stats.opening_count);
     println!("  dropped (pop.)     {}", stats.rejected_popularity);
     println!("  dropped (plays)    {}", stats.rejected_plays);
     println!("  dropped (invalid)  {}", stats.rejected_malformed);
+    if stats.unparsed_game_urls > 0 {
+        println!("  unlinkable games   {}", stats.unparsed_game_urls);
+    }
     println!(
         "  database           {} ({:.0} MB)",
         args.output.display(),
