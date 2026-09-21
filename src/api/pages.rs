@@ -26,7 +26,8 @@ pub fn landing(facts: &SiteFacts) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>chess-puzzle-api</title>
-<meta name="description" content="A free API serving random chess puzzles by rating and theme, from the Lichess puzzle database.">
+<meta name="description" content="A free API serving random chess puzzles by rating and theme, from the Lichess puzzle database. Built by Mauri Ulloa.">
+<meta name="author" content="Mauri Ulloa">
 <style>
   :root {{
     color-scheme: light dark;
@@ -66,6 +67,8 @@ pub fn landing(facts: &SiteFacts) -> String {
   .stats span {{ color: var(--muted); font-size: .85rem; }}
   footer {{ margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
             color: var(--muted); font-size: .9rem; }}
+  footer p {{ margin: 0 0 .6rem; }}
+  footer .by {{ color: var(--fg); }}
 </style>
 </head>
 <body>
@@ -109,13 +112,17 @@ pub fn landing(facts: &SiteFacts) -> String {
   </ul>
 
   <footer>
-    Puzzle data from the
-    <a href="https://database.lichess.org/#puzzles">Lichess open database</a>,
-    released under CC0. Lichess is free and ad-free —
-    <a href="https://lichess.org/patron">consider supporting them</a>.
-    This project is not affiliated with Lichess.
-    <br>
-    Source on <a href="https://github.com/mauricioulloa/chess-puzzle-api">GitHub</a>, MIT licensed.
+    <p class="by">
+      Built by <a href="https://mauriulloa.com">Mauri Ulloa</a> ·
+      <a href="https://github.com/mauricioulloa/chess-puzzle-api">Source on GitHub</a>, MIT licensed
+    </p>
+    <p>
+      Puzzle data from the
+      <a href="https://database.lichess.org/#puzzles">Lichess open database</a>,
+      released under CC0. Lichess is free and ad-free —
+      <a href="https://lichess.org/patron">consider supporting them</a>.
+      This project is not affiliated with or endorsed by Lichess.
+    </p>
   </footer>
 </main>
 </body>
@@ -178,6 +185,11 @@ player without leaking what they are meant to find.
 `X-RateLimit-Remaining`; a 429 carries `Retry-After` in seconds. Back off
 rather than retrying immediately.
 
+## About
+
+Built and maintained by Mauri Ulloa (https://mauriulloa.com). Open source under
+the MIT licence: https://github.com/mauricioulloa/chess-puzzle-api
+
 ## Attribution
 
 Puzzle data comes from https://database.lichess.org/#puzzles under CC0. This
@@ -229,6 +241,9 @@ mod tests {
         // Attribution is a licence obligation in spirit, not an afterthought.
         assert!(html.contains("database.lichess.org"));
         assert!(html.contains("not affiliated"));
+        // And the author's credit should survive a redesign.
+        assert!(html.contains("Mauri Ulloa"));
+        assert!(html.contains("https://mauriulloa.com"));
     }
 
     #[test]
@@ -254,6 +269,16 @@ mod tests {
             let stem = label.split("/{").next().unwrap();
             assert!(href.starts_with(stem), "link text {label} points at {href}");
         }
+    }
+
+    #[test]
+    fn llms_txt_says_who_made_it() {
+        let text = llms_txt(&facts());
+        assert!(text.contains("Mauri Ulloa"));
+        assert!(text.contains("https://mauriulloa.com"));
+        // Without crowding out the data attribution, which is the one that
+        // carries an obligation.
+        assert!(text.contains("database.lichess.org"));
     }
 
     #[test]

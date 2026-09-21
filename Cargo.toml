@@ -2,6 +2,14 @@
 name = "chess-puzzle-api"
 version = "0.1.0"
 edition = "2024"
+authors = ["Mauri Ulloa <https://mauriulloa.com>"]
+description = "An open-source HTTP and MCP API serving random chess puzzles by rating and theme, from the Lichess puzzle database"
+license = "MIT"
+repository = "https://github.com/mauricioulloa/chess-puzzle-api"
+homepage = "https://mauriulloa.com"
+readme = "README.md"
+keywords = ["chess", "puzzles", "api", "lichess", "mcp"]
+categories = ["games", "web-programming::http-server"]
 
 [dependencies]
 anyhow = "1.0.104"

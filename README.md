@@ -11,6 +11,8 @@ GET /v1/puzzles/random?rating=1500&themes=fork
 GET /v1/puzzles/00008/solution
 ```
 
+By [Mauri Ulloa](https://mauriulloa.com).
+
 ## Status
 
 Early development. The importer is done; the HTTP layer is being built.
@@ -456,6 +458,15 @@ this project merely repackages.
 
 This project is not affiliated with or endorsed by Lichess.
 
+## Author
+
+Built and maintained by **[Mauri Ulloa](https://mauriulloa.com)**.
+
+Issues and pull requests are welcome. API keys are issued by opening an issue.
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © Mauri Ulloa
+
+The puzzle data is not covered by this licence: it is public domain (CC0) and
+belongs to nobody.

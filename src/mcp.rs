@@ -336,7 +336,14 @@ impl ServerHandler for PuzzleTools {
         // built from Default rather than with a struct literal.
         let mut server_info = Implementation::default();
         server_info.name = "chess-puzzle-api".to_string();
+        server_info.title = Some("Chess Puzzles".to_string());
         server_info.version = env!("CARGO_PKG_VERSION").to_string();
+        server_info.description = Some(
+            "Random chess puzzles by rating and tactical theme, from the Lichess \
+             puzzle database (CC0). Built by Mauri Ulloa."
+                .to_string(),
+        );
+        server_info.website_url = Some("https://mauriulloa.com".to_string());
 
         let mut info = ServerConfig::default();
         info.server_info = server_info;

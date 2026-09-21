@@ -15,6 +15,7 @@ use utoipa::OpenApi;
                        database (CC0). The `fen` of a puzzle is the position *before* the \
                        opponent's move: apply `initialMove` to reach the position to solve. \
                        Solutions are served only by the solution endpoint.",
+        contact(name = "Mauri Ulloa", url = "https://mauriulloa.com"),
         license(name = "MIT", url = "https://opensource.org/licenses/MIT")
     ),
     paths(
