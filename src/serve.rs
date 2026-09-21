@@ -36,8 +36,9 @@ pub struct ServeArgs {
     #[arg(long, env = "ANONYMOUS_LIMIT", default_value_t = 30)]
     pub anonymous_limit: u32,
 
-    /// Believe `X-Forwarded-For`. Only enable this behind a proxy that
-    /// overwrites the header, or callers can forge their own client address.
+    /// Believe the proxy headers that carry the client address. Only enable
+    /// this behind a proxy that sets them, or callers can forge their own
+    /// address and give themselves a private rate-limit budget.
     #[arg(long, env = "TRUST_PROXY_HEADERS")]
     pub trust_proxy_headers: bool,
 }

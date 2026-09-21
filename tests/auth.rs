@@ -30,6 +30,14 @@ struct Harness {
 }
 
 fn harness(anonymous_limit: u32) -> Harness {
+    build(anonymous_limit, false)
+}
+
+fn harness_behind_proxy(anonymous_limit: u32) -> Harness {
+    build(anonymous_limit, true)
+}
+
+fn build(anonymous_limit: u32, trust_proxy_headers: bool) -> Harness {
     let dir = TempDir::new().expect("temp dir");
     let path = dir.path().join("puzzles.db");
 
@@ -62,7 +70,7 @@ fn harness(anonymous_limit: u32) -> Harness {
             usage: Mutex::new(HashMap::new()),
             stats: Arc::new(chess_puzzle_api::usage::Collector::new()),
             anonymous_limit,
-            trust_proxy_headers: false,
+            trust_proxy_headers,
         }),
     }
 }
@@ -378,4 +386,92 @@ async fn searches_that_find_nothing_are_still_recorded() {
          the counters carry: it shows where demand outruns the dataset"
     );
     assert_eq!(body["totals"]["errors"], 1);
+}
+
+// --- who the caller is -----------------------------------------------------
+
+async fn get_with_headers(harness: &Harness, headers: &[(&str, &str)]) -> StatusCode {
+    let mut builder = Request::builder().uri("/v1/puzzles/random");
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    routes::router(Arc::clone(&harness.sampler), Arc::clone(&harness.auth))
+        .oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .expect("request")
+        .status()
+}
+
+#[tokio::test]
+async fn a_caller_cannot_mint_rate_limit_buckets_by_forging_a_forwarded_header() {
+    let harness = harness_behind_proxy(1);
+
+    // A proxy appends what it saw, so the rightmost entry is the only one it
+    // wrote. Everything left of it came from the caller. Reading the leftmost
+    // value would let this caller have a fresh quota on every request just by
+    // varying the prefix.
+    let first = get_with_headers(&harness, &[("x-forwarded-for", "1.1.1.1, 203.0.113.9")]).await;
+    assert_eq!(first, StatusCode::OK);
+
+    let second = get_with_headers(&harness, &[("x-forwarded-for", "2.2.2.2, 203.0.113.9")]).await;
+    assert_eq!(
+        second,
+        StatusCode::TOO_MANY_REQUESTS,
+        "both requests came from 203.0.113.9 and must share one budget"
+    );
+}
+
+#[tokio::test]
+async fn distinct_clients_behind_the_same_proxy_keep_separate_budgets() {
+    let harness = harness_behind_proxy(1);
+
+    assert_eq!(
+        get_with_headers(&harness, &[("x-forwarded-for", "203.0.113.1")]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_with_headers(&harness, &[("x-forwarded-for", "203.0.113.2")]).await,
+        StatusCode::OK,
+        "throttling one client must not throttle the next"
+    );
+}
+
+#[tokio::test]
+async fn flys_own_header_is_preferred_over_the_forwarded_list() {
+    let harness = harness_behind_proxy(1);
+
+    // Fly sets Fly-Client-IP wholesale rather than appending, so there is
+    // nothing for a caller to prepend to it.
+    let headers = [
+        ("x-forwarded-for", "1.1.1.1, 203.0.113.9"),
+        ("fly-client-ip", "198.51.100.7"),
+    ];
+    assert_eq!(get_with_headers(&harness, &headers).await, StatusCode::OK);
+
+    let other = [
+        ("x-forwarded-for", "2.2.2.2, 203.0.113.9"),
+        ("fly-client-ip", "198.51.100.7"),
+    ];
+    assert_eq!(
+        get_with_headers(&harness, &other).await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the same Fly-Client-IP is the same caller whatever else is sent"
+    );
+}
+
+#[tokio::test]
+async fn forwarded_headers_are_ignored_unless_the_proxy_is_trusted() {
+    // Default deployment: no proxy in front, so the headers are a caller's
+    // invention and must not be believed.
+    let harness = harness(1);
+
+    assert_eq!(
+        get_with_headers(&harness, &[("x-forwarded-for", "1.1.1.1")]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_with_headers(&harness, &[("x-forwarded-for", "2.2.2.2")]).await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "without a trusted proxy every request is the same unknown peer"
+    );
 }

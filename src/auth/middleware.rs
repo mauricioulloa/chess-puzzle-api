@@ -57,23 +57,50 @@ fn bearer_token(request: &Request) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
+/// Works out who is calling, for rate limiting.
+///
+/// The subtlety is which end of `X-Forwarded-For` to believe. A proxy
+/// *appends* the address it saw, so the list reads
+/// `client, proxy1, proxy2`, and anything to the left of the nearest trusted
+/// proxy's entry was supplied by the caller. Taking the leftmost value — the
+/// obvious reading — lets anyone mint themselves a fresh rate-limit bucket by
+/// sending their own header. So the rightmost entry is used: the one the
+/// proxy in front of us wrote and nobody else could have.
+///
+/// Fly's `Fly-Client-IP` is preferred where present because the proxy sets it
+/// wholesale rather than appending, leaving nothing for a caller to prepend.
 fn client_ip(request: &Request, trust_proxy_headers: bool) -> IpAddr {
-    if trust_proxy_headers
-        && let Some(forwarded) = request
+    let peer = || {
+        request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|info| info.0.ip())
+            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+    };
+
+    if !trust_proxy_headers {
+        return peer();
+    }
+
+    let header = |name: &str| {
+        request
             .headers()
-            .get("x-forwarded-for")
+            .get(name)
             .and_then(|value| value.to_str().ok())
-        && let Some(first) = forwarded.split(',').next()
-        && let Ok(address) = first.trim().parse()
+    };
+
+    if let Some(address) = header("fly-client-ip").and_then(|value| value.trim().parse().ok()) {
+        return address;
+    }
+
+    if let Some(forwarded) = header("x-forwarded-for")
+        && let Some(nearest) = forwarded.rsplit(',').next()
+        && let Ok(address) = nearest.trim().parse()
     {
         return address;
     }
 
-    request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+    peer()
 }
 
 fn apply_headers(response: &mut Response, decision: Decision, authenticated: bool) {

@@ -23,7 +23,7 @@ Early development. The importer is done; the HTTP layer is being built.
 - [x] API keys and rate limiting
 - [x] OpenAPI documentation
 - [x] Usage statistics, MCP server, discovery pages
-- [ ] Deployment
+- [x] Deployment
 
 ## Why it exists
 
@@ -389,9 +389,14 @@ cargo run --release -- serve
 | `--anonymous-limit` | `ANONYMOUS_LIMIT` | `30` |
 | `--trust-proxy-headers` | `TRUST_PROXY_HEADERS` | off |
 
-Enable `--trust-proxy-headers` only behind a proxy that overwrites
-`X-Forwarded-For`. Without one, any caller can reset their own rate limit by
-inventing the header.
+Enable `--trust-proxy-headers` only when something in front actually sets the
+client address. Without a proxy, those headers are a caller's invention.
+
+With it on, the address is read from `Fly-Client-IP` where present, and
+otherwise from the **rightmost** entry of `X-Forwarded-For`. A proxy appends
+what it saw, so everything to the left of that entry was supplied by the
+caller — reading the leftmost value, which is the obvious mistake, lets anyone
+mint a fresh rate-limit bucket on every request.
 
 Measured on the full 3.1M-puzzle database, server-side, excluding client
 overhead:

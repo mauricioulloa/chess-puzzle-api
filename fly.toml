@@ -1,0 +1,52 @@
+# Production deployment for chess.mauriulloa.com
+#
+# The puzzle database is a 633 MB file on a persistent volume rather than part
+# of the image: deploys then move a 12 MB binary instead of rebuilding and
+# pushing the whole dataset, and the data survives every release.
+
+app = "chess-puzzle-api"
+primary_region = "scl"
+
+[build]
+
+[env]
+  PUZZLES_DB = "/data/puzzles.db"
+  API_DB = "/data/api.db"
+  BIND_ADDR = "0.0.0.0:8080"
+  ANONYMOUS_LIMIT = "30"
+  # Fly's proxy sets the client address. Without this every request in the
+  # world would look like it came from the proxy and share one rate limit.
+  TRUST_PROXY_HEADERS = "true"
+  RUST_LOG = "chess_puzzle_api=info"
+
+[[mounts]]
+  source = "puzzle_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  # Never stop: SQLite reads through the page cache, and a machine that has
+  # just started has a cold one. Staying up is what keeps queries sub-millisecond.
+  auto_stop_machines = false
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # 1 GB so the hot parts of the 633 MB database stay in page cache. This is
+  # the single setting that most affects latency.
+  memory = "1gb"
+  cpus = 1
