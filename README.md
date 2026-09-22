@@ -149,6 +149,8 @@ agreement between the two means something.
 
 ## Feedback
 
+What is planned next, and why, is in [BACKLOG.md](BACKLOG.md).
+
 This is early. If something is missing, awkward, or wrong — a filter you
 expected, a field that would save you a round trip, an error message that did
 not help — please
