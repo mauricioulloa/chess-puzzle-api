@@ -5,8 +5,11 @@
 # pushing the whole dataset, and the data survives every release.
 
 app = "chess-puzzle-api"
-# Santiago is not a Fly region; Sao Paulo is the closest one to Chile.
-primary_region = "gru"
+# Virginia, not Sao Paulo. gru costs 61% more for the same hardware
+# ($9.20 vs $5.70 a month at 1 GB) and the audience is not Chile: it is
+# agents and developers spread across the world, most of them closer to iad.
+# The trade is ~130 ms slower from Santiago, measured.
+primary_region = "iad"
 
 [build]
 
