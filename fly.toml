@@ -51,7 +51,11 @@ primary_region = "gru"
 
 [[vm]]
   size = "shared-cpu-1x"
-  # 1 GB so the hot parts of the 633 MB database stay in page cache. This is
-  # the single setting that most affects latency.
-  memory = "1gb"
+  # 512 MB. The 1 GB here was paying for SQLite's per-connection page caches
+  # (8 pooled connections at 32 MB each), not for the OS page cache, which is
+  # evictable and simply uses whatever is free. With those caches cut to 2 MB
+  # the working set fits, and measured end-to-end latency is unchanged: a
+  # request is ~87 ms of network round trip and well under a millisecond of
+  # query, so page-cache misses are invisible next to the wire.
+  memory = "512mb"
   cpus = 1

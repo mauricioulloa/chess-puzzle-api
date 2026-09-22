@@ -11,6 +11,11 @@ pub type PooledConnection = r2d2::PooledConnection<SqliteConnectionManager>;
 /// `SQLITE_OPEN_READ_ONLY` plus `query_only` means a bug in a handler cannot
 /// mutate the dataset, and a large `mmap_size` lets the OS page cache do the
 /// caching instead of duplicating pages into SQLite's own cache.
+///
+/// `cache_size` is deliberately small for that reason: it is per connection, so
+/// anything generous here is multiplied by the pool and comes out of the heap,
+/// where it competes with the page cache that is already holding those pages.
+/// Small heap caches let the machine be sized by the working set, not the pool.
 pub fn open_read_only(path: &Path, pool_size: u32) -> Result<SqlitePool> {
     if !path.exists() {
         anyhow::bail!(
@@ -25,7 +30,7 @@ pub fn open_read_only(path: &Path, pool_size: u32) -> Result<SqlitePool> {
             conn.execute_batch(
                 "PRAGMA query_only = 1;
                  PRAGMA mmap_size = 1073741824;
-                 PRAGMA cache_size = -32000;
+                 PRAGMA cache_size = -2000;
                  PRAGMA temp_store = MEMORY;",
             )
         });
