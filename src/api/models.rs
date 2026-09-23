@@ -22,6 +22,8 @@ pub struct PuzzleResponse {
     pub rating_deviation: i64,
     pub popularity: i64,
     pub nb_plays: i64,
+    /// Pieces on the board the player solves, kings included.
+    pub pieces: u32,
     /// The opponent's move in SAN, e.g. `Bxg3`. Chess literature is written
     /// in SAN, so this is what people and language models read fluently.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +76,7 @@ impl PuzzleResponse {
             rating_deviation: row.rating_deviation,
             popularity: row.popularity,
             nb_plays: row.nb_plays,
+            pieces: row.pieces,
             themes: catalog
                 .names_for(row.mask)
                 .into_iter()

@@ -70,72 +70,31 @@ equivalent.
 
 ---
 
-## The educator and parent feature
+## Printable sheets for educators
 
-Printable puzzle sheets. The market is real — scholastic chess, homeschooling,
-clubs — the free alternatives are poor, and ChessKid is a subscription.
-
-One differentiator is not being used anywhere today: **the data is CC0**. A
-teacher photocopying a puzzle book is in a legal grey area. Here the sheet is
-theirs, unconditionally. That belongs on the page in plain words.
-
-### 8. A piece-count filter — the finding that matters
-
-**Low rating does not mean simple position.** Measured on the real dataset:
-
-| Slice | Median pieces | ≤12 pieces |
-| --- | --- | --- |
-| Mate in 1, under 1000 | 19 | 8% |
-| Mate in 2, under 1300 | 16 | 11% |
-| Fork, under 1200 | 14 | 37% |
-
-A mate-in-one with nineteen pieces is an easy move inside a full middlegame. A
-seven-year-old has to scan the whole board to find it. The classic teaching
-diagram is sparse, and rating alone cannot select for that.
-
-Also counter-intuitive and useful: **fork puzzles are better teaching material
-than mate-in-ones** at beginner level, by a wide margin.
-
-The fix is a piece-count column written at import and exposed as a filter
-(`maxPieces`, or a friendlier "simple positions"). It costs a schema change and
-a re-import, which takes 29 seconds. It is the difference between a sheet a
-teacher uses and one they throw away.
-
-Material is not the constraint: 313,405 mate-in-ones under 1000, of which even
-the tidy 8% is ~25,000 puzzles.
-
-### 9. The printable sheet itself — `/worksheet`
-
-Six diagrams to a page, "White to move" under each, room to write the answer,
-and an answer key on its own page so the teacher can keep it. Black and white
-for print — the green board wastes ink and greys into mush.
-
-Built with `@media print` and the browser's own "Save as PDF". No server-side
-PDF machinery for v1.
-
-### 10. Teaching presets
-
-"Beginner: forks", "Mate in one", "First endgames" — a teacher should not have
-to reason about Elo bands and theme ids. This is where the piece-count filter
-and the curation actually surface.
+Moved to its own project,
+[puzzle-sheets](https://github.com/mauricioulloa/puzzle-sheets), which calls
+this API. What it needed from here is done: `maxPieces`, because a low rating
+does not mean a simple position — mate-in-ones under 1000 have a median of
+nineteen pieces on the board.
 
 ---
 
 ## Product debt
 
-### 11. Theme descriptions on `/v1/themes`
+### 8. Theme descriptions on `/v1/themes`
 
 The endpoint returns names and counts but no explanations, so callers have to
 guess what `hangingPiece` means. Lichess's own descriptions live in an
 AGPL-licensed repository, which does not mix cleanly with MIT — writing fresh
 ones avoids the question entirely.
 
-### 12. Revisit the rate limit with real data
+### 9. Revisit the rate limit with real data
 
 30/min anonymous was a guess and has never met real traffic. `/v1/usage` will
 show whether it is too tight before anyone complains.
 
-### 13. A playable board
+### 10. A playable board
 
 Letting the visitor move the pieces and be told whether they are right, instead
 of only revealing the answer. Deliberately deferred: it needs legal-move

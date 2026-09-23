@@ -9,7 +9,8 @@
 
 use crate::api::catalog::Catalog;
 use crate::api::query::{
-    DEFAULT_TOLERANCE, PuzzleFilter, PuzzleRow, Sampler, ThemesMode, band_around,
+    DEFAULT_TOLERANCE, PIECES_CEILING, PIECES_FLOOR, PuzzleFilter, PuzzleRow, Sampler, ThemesMode,
+    band_around,
 };
 use crate::chess;
 use rmcp::handler::server::wrapper::{Json, Parameters};
@@ -35,6 +36,9 @@ pub struct RandomArgs {
     pub themes_mode: Option<String>,
     /// Themes the puzzle must not carry.
     pub exclude_themes: Option<Vec<String>>,
+    /// At most this many pieces on the board, kings included. Use 8 to 14
+    /// for young beginners: a low rating alone can still be a crowded board.
+    pub max_pieces: Option<u32>,
     /// How many puzzles to return, up to 20. Defaults to 1.
     pub count: Option<usize>,
 }
@@ -61,6 +65,8 @@ pub struct McpPuzzle {
     pub opponent_last_move: String,
     /// Elo difficulty.
     pub rating: i64,
+    /// Pieces on the board, kings included.
+    pub pieces: u32,
     /// Tactical motifs present. These are hints; do not show them to a solver
     /// unless they ask.
     pub themes: Vec<String>,
@@ -138,6 +144,7 @@ fn to_mcp(row: &PuzzleRow, catalog: &Catalog) -> Result<McpPuzzle, ErrorData> {
         side_to_move: chess::color_name(annotated.solver_color).to_string(),
         opponent_last_move: annotated.initial_move_san,
         rating: row.rating,
+        pieces: row.pieces,
         themes: catalog
             .names_for(row.mask)
             .into_iter()
@@ -192,6 +199,14 @@ impl PuzzleTools {
         if count == 0 || count > MAX_COUNT {
             return Err(invalid(format!("count must be between 1 and {MAX_COUNT}")));
         }
+        if args
+            .max_pieces
+            .is_some_and(|max| !(PIECES_FLOOR..=PIECES_CEILING).contains(&max))
+        {
+            return Err(invalid(format!(
+                "max_pieces must be between {PIECES_FLOOR} and {PIECES_CEILING}"
+            )));
+        }
 
         let tolerance = args.tolerance.unwrap_or(DEFAULT_TOLERANCE).max(0);
         let band = args.rating.map(|rating| band_around(rating, tolerance));
@@ -209,6 +224,7 @@ impl PuzzleTools {
             exclude: self.resolve(args.exclude_themes.as_deref(), "exclude_themes")?,
             mode,
             opening_ids: Vec::new(),
+            max_pieces: args.max_pieces,
         };
 
         let sampler = Arc::clone(&self.sampler);

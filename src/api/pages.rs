@@ -57,7 +57,7 @@ player without leaking what they are meant to find.
 
 ## Endpoints
 
-- [{base_url}/v1/puzzles/random]({base_url}/v1/puzzles/random): a random puzzle. Filter with `rating` and `tolerance`, or `ratingMin`/`ratingMax`; `themes` (comma separated) with `themesMode=all|any`; `excludeThemes`; `opening`; `count` for up to 50 at once; `board=true`.
+- [{base_url}/v1/puzzles/random]({base_url}/v1/puzzles/random): a random puzzle. Filter with `rating` and `tolerance`, or `ratingMin`/`ratingMax`; `themes` (comma separated) with `themesMode=all|any`; `excludeThemes`; `opening`; `maxPieces` for sparse, beginner-friendly boards; `count` for up to 50 at once; `board=true`.
 - [{base_url}/v1/puzzles/{{id}}]({base_url}/v1/puzzles/00008): one puzzle by id, still without its solution.
 - [{base_url}/v1/puzzles/{{id}}/solution]({base_url}/v1/puzzles/00008/solution): the answer, in UCI and SAN.
 - [{base_url}/v1/themes]({base_url}/v1/themes): every valid theme name with its puzzle count. Read this before guessing a theme; an unknown name is a 400, not an empty result.

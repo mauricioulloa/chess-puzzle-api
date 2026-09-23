@@ -1,3 +1,4 @@
+use crate::chess;
 use crate::db;
 use crate::import::parse::{self, MAX_THEMES, ThemeMask};
 use anyhow::{Context, Result, bail};
@@ -41,6 +42,9 @@ struct Record {
     game_url: String,
     #[serde(rename = "OpeningTags", default)]
     opening_tags: String,
+    /// Derived on import, not read from the dump.
+    #[serde(skip)]
+    pieces: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -62,9 +66,9 @@ pub struct ImportStats {
     pub unparsed_game_urls: u64,
 }
 
-/// Rejects rows we could never serve correctly. Cheap structural checks only:
-/// replaying three million puzzles to re-verify legality would re-check data
-/// Lichess already validated, and the API degrades gracefully if one fails.
+/// Rejects rows we could never serve correctly. Cheap structural checks, run
+/// on every row before the filters; accepted rows are then replayed through
+/// the rules engine to count their pieces, which also catches illegal moves.
 fn validate(rec: &Record) -> Result<(), &'static str> {
     if rec.puzzle_id.is_empty() {
         return Err("empty puzzle id");
@@ -137,7 +141,7 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
             bar.set_message(format!("{} kept", stats.accepted));
         }
 
-        let record = match result {
+        let mut record = match result {
             Ok(record) => record,
             Err(err) => {
                 stats.rejected_malformed += 1;
@@ -162,6 +166,17 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         if record.nb_plays < filters.min_plays {
             stats.rejected_plays += 1;
             continue;
+        }
+
+        match chess::pieces_to_solve(&record.fen, &record.moves) {
+            Ok(pieces) => record.pieces = pieces,
+            Err(err) => {
+                stats.rejected_malformed += 1;
+                if stats.rejected_malformed <= 5 {
+                    tracing::warn!("skipping {}: {err:#}", record.puzzle_id);
+                }
+                continue;
+            }
         }
 
         stats.accepted += 1;
@@ -201,9 +216,9 @@ fn insert_chunk(
         let mut insert_puzzle = tx.prepare_cached(
             "INSERT INTO puzzles
                  (id, puzzle_id, fen, moves, rating, rating_deviation,
-                  popularity, nb_plays, theme_mask_lo, theme_mask_hi,
+                  popularity, nb_plays, pieces, theme_mask_lo, theme_mask_hi,
                   opening_id, game_id, game_ply, game_black)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         )?;
         let mut insert_theme =
             tx.prepare_cached("INSERT INTO themes (name) VALUES (?1) RETURNING id")?;
@@ -280,6 +295,7 @@ fn insert_chunk(
                     record.rating_deviation,
                     record.popularity,
                     record.nb_plays,
+                    record.pieces,
                     mask.lo,
                     mask.hi,
                     opening_id,

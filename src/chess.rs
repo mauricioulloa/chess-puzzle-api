@@ -15,7 +15,7 @@ use anyhow::{Context, Result, bail};
 use shakmaty::fen::Fen;
 use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
-use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, File, Position, Rank, Square};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, File, Move, Position, Rank, Square};
 
 /// A puzzle's moves, resolved into every representation the API serves.
 #[derive(Debug, Clone)]
@@ -102,16 +102,33 @@ pub fn annotate(fen: &str, moves: &str) -> Result<Annotated> {
     })
 }
 
-fn play(position: &mut Chess, uci: &str) -> Result<String> {
+/// How many pieces, kings included, stand on the board the player solves.
+///
+/// Rating alone cannot tell a sparse teaching diagram from an easy move
+/// buried in a full middlegame, and a beginner has to scan every piece.
+pub fn pieces_to_solve(fen: &str, moves: &str) -> Result<u32> {
+    let mut position = parse_position(fen)?;
+    let Some(first) = moves.split_whitespace().next() else {
+        bail!("puzzle has no moves");
+    };
+    let opponent_move = legal_move(&position, first)?;
+    position.play_unchecked(opponent_move);
+    Ok(position.board().occupied().count() as u32)
+}
+
+fn legal_move(position: &Chess, uci: &str) -> Result<Move> {
     let parsed: UciMove = uci
         .parse()
         .map_err(|err| anyhow::anyhow!("{err}"))
         .with_context(|| format!("parsing UCI move `{uci}`"))?;
-    let legal = parsed
+    parsed
         .to_move(position)
         .map_err(|err| anyhow::anyhow!("{err}"))
-        .with_context(|| format!("`{uci}` is not legal in this position"))?;
+        .with_context(|| format!("`{uci}` is not legal in this position"))
+}
 
+fn play(position: &mut Chess, uci: &str) -> Result<String> {
+    let legal = legal_move(position, uci)?;
     let san = SanPlus::from_move(position.clone(), legal).to_string();
     position.play_unchecked(legal);
     Ok(san)
@@ -191,6 +208,12 @@ mod tests {
         assert_eq!(lines[8].trim(), "a b c d e f g h");
         // Black king on h8, from the FEN's first field `r6k`.
         assert!(lines[0].trim_end().ends_with('k'));
+    }
+
+    #[test]
+    fn counts_pieces_after_the_opponents_move() {
+        // 20 pieces in the FEN; the opponent's Bxg3 captures a rook.
+        assert_eq!(pieces_to_solve(FEN, MOVES).expect("counts"), 19);
     }
 
     #[test]

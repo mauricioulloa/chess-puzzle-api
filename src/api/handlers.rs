@@ -3,8 +3,8 @@ use crate::api::errors::{ApiError, ApiResult, ErrorBody};
 use crate::api::models::*;
 use crate::api::pages::{self, SiteFacts};
 use crate::api::query::{
-    DEFAULT_TOLERANCE, PuzzleFilter, PuzzleRow, RATING_CEILING, RATING_FLOOR, Sampler, ThemesMode,
-    band_around,
+    DEFAULT_TOLERANCE, PIECES_CEILING, PIECES_FLOOR, PuzzleFilter, PuzzleRow, RATING_CEILING,
+    RATING_FLOOR, Sampler, ThemesMode, band_around,
 };
 use crate::auth::keys::KeyStore;
 use crate::db::meta_keys;
@@ -43,6 +43,10 @@ pub struct RandomParams {
     #[serde(alias = "excludeTheme")]
     exclude_themes: Option<String>,
     opening: Option<String>,
+    /// Only positions with at most this many pieces on the board, kings
+    /// included. Low rating does not mean a simple position: this is what
+    /// selects sparse, diagram-like puzzles for beginners.
+    max_pieces: Option<u32>,
     count: Option<usize>,
     /// Include the position drawn as text. Off by default because it is by
     /// far the largest field in the response.
@@ -200,6 +204,15 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
         None => Vec::new(),
     };
 
+    if let Some(max) = params.max_pieces
+        && !(PIECES_FLOOR..=PIECES_CEILING).contains(&max)
+    {
+        return Err(bad_request(
+            format!("`maxPieces` must be between {PIECES_FLOOR} and {PIECES_CEILING}; got {max}."),
+            None,
+        ));
+    }
+
     Ok(PuzzleFilter {
         rating_min,
         rating_max,
@@ -207,6 +220,7 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
         exclude,
         mode,
         opening_ids,
+        max_pieces: params.max_pieces,
     })
 }
 
@@ -234,6 +248,9 @@ fn filter_sample(sampler: &Sampler, params: &RandomParams, filter: &PuzzleFilter
     if !filter.opening_ids.is_empty() {
         options.push("opening");
     }
+    if filter.max_pieces.is_some() {
+        options.push("maxPieces");
+    }
     if filter.include.is_empty() && filter.exclude.is_empty() && filter.rating_min.is_none() {
         options.push("unfiltered");
     }
@@ -256,6 +273,9 @@ fn describe(filter: &PuzzleFilter) -> String {
     }
     if !filter.include.is_empty() {
         parts.push(format!("{} theme(s)", filter.include.len()));
+    }
+    if let Some(max) = filter.max_pieces {
+        parts.push(format!("at most {max} pieces"));
     }
     if parts.is_empty() {
         "those filters".to_string()

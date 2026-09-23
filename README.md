@@ -43,6 +43,7 @@ Filters on `/v1/puzzles/random`:
 | `themes`, `themesMode` | comma separated; `all` (default) or `any` |
 | `excludeThemes` | themes to rule out |
 | `opening` | e.g. `Sicilian_Defense` |
+| `maxPieces` | at most this many pieces on the board, kings included |
 | `count` | up to 50 at once |
 | `board` | `true` draws the position as text |
 
@@ -59,6 +60,7 @@ immediately instead of silently widening the search.
   "positionFen": "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2b1/PqP3PP/7K w - - 0 25",
   "solverColor": "white",
   "rating": 1797,
+  "pieces": 19,
   "themes": ["middlegame", "crushing", "long", "hangingPiece"],
   "analysisUrl": "https://lichess.org/analysis/r6k/pp2r2p/...",
   "gameUrl": "https://lichess.org/787zsVup/black#48"

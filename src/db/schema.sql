@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS themes (
 -- these, exclude those) with a bitwise AND instead of substring matching,
 -- which would otherwise have to distinguish 'mate' from 'mateIn2'.
 --
+-- `pieces` counts the board the player solves, after the opponent's move.
+--
 -- The game URL is decomposed rather than stored: every row in the dump is
 -- https://lichess.org/{game_id}[/black]#{ply}, so the prefix is dead weight.
 CREATE TABLE IF NOT EXISTS puzzles (
@@ -38,6 +40,7 @@ CREATE TABLE IF NOT EXISTS puzzles (
     rating_deviation INTEGER NOT NULL,
     popularity       INTEGER NOT NULL,
     nb_plays         INTEGER NOT NULL,
+    pieces           INTEGER NOT NULL,
     theme_mask_lo    INTEGER NOT NULL,
     theme_mask_hi    INTEGER NOT NULL,
     opening_id       INTEGER REFERENCES openings (id),

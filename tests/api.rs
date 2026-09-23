@@ -434,3 +434,55 @@ fn dataset_statistics_are_computed_once() {
         repeated.elapsed()
     );
 }
+
+#[test]
+fn max_pieces_selects_sparse_positions() {
+    let (_dir, sampler) = fixture_sampler();
+    let all = PuzzleFilter::default();
+    let pieces: Vec<u32> = (0..60)
+        .flat_map(|_| sampler.random(&all, 1).expect("sample"))
+        .map(|row| row.pieces)
+        .collect();
+    let median = {
+        let mut sorted = pieces.clone();
+        sorted.sort_unstable();
+        sorted[sorted.len() / 2]
+    };
+
+    // Both the fast path and the exact fallback have to honour the cap.
+    let sparse = PuzzleFilter {
+        max_pieces: Some(median),
+        ..Default::default()
+    };
+    for _ in 0..40 {
+        for row in sampler.random(&sparse, 1).expect("sample") {
+            assert!(
+                row.pieces <= median,
+                "{} has {} pieces",
+                row.puzzle_id,
+                row.pieces
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn puzzles_report_their_piece_count_and_can_be_filtered_by_it() {
+    let (_dir, sampler) = fixture_sampler();
+
+    let (status, body) = get(Arc::clone(&sampler), "/v1/puzzles/random?maxPieces=32").await;
+    assert_eq!(status, StatusCode::OK);
+    let pieces = body["pieces"].as_u64().expect("pieces field");
+    assert!((2..=32).contains(&pieces));
+
+    for bad in ["maxPieces=1", "maxPieces=33"] {
+        let (status, body) = get(Arc::clone(&sampler), &format!("/v1/puzzles/random?{bad}")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+        assert!(body["message"].as_str().unwrap().contains("maxPieces"));
+    }
+
+    // Nothing has fewer pieces than two kings.
+    let (status, body) = get(sampler, "/v1/puzzles/random?maxPieces=2").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "no_match");
+}

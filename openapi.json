@@ -110,6 +110,17 @@
             }
           },
           {
+            "name": "maxPieces",
+            "in": "query",
+            "description": "Only positions with at most this many pieces on the board, kings\nincluded. Low rating does not mean a simple position: this is what\nselects sparse, diagram-like puzzles for beginners.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
             "name": "count",
             "in": "query",
             "required": false,
@@ -564,6 +575,7 @@
           "ratingDeviation",
           "popularity",
           "nbPlays",
+          "pieces",
           "themes",
           "openingTags"
         ],
@@ -615,6 +627,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "pieces": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Pieces on the board the player solves, kings included.",
+            "minimum": 0
           },
           "popularity": {
             "type": "integer",

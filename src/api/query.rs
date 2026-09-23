@@ -26,6 +26,9 @@ const MAX_ATTEMPTS: usize = 32;
 pub const RATING_FLOOR: i64 = 0;
 pub const RATING_CEILING: i64 = 4000;
 pub const DEFAULT_TOLERANCE: i64 = 100;
+/// Two kings is the emptiest legal board; 32 is the full starting set.
+pub const PIECES_FLOOR: u32 = 2;
+pub const PIECES_CEILING: u32 = 32;
 
 /// The band `rating ± tolerance`. A band that runs off either end is clamped
 /// rather than rejected: asking for rating 3200 is a reasonable request.
@@ -66,6 +69,7 @@ pub struct PuzzleFilter {
     pub mode: ThemesMode,
     /// Resolved opening ids; a name can match several interned tag strings.
     pub opening_ids: Vec<i64>,
+    pub max_pieces: Option<u32>,
 }
 
 impl PuzzleFilter {
@@ -84,6 +88,7 @@ impl PuzzleFilter {
             && self.include.is_empty()
             && self.exclude.is_empty()
             && self.opening_ids.is_empty()
+            && self.max_pieces.is_none()
     }
 }
 
@@ -96,6 +101,7 @@ pub struct PuzzleRow {
     pub rating_deviation: i64,
     pub popularity: i64,
     pub nb_plays: i64,
+    pub pieces: u32,
     pub mask: ThemeMask,
     pub opening_id: Option<i64>,
     pub opening_tags: Option<String>,
@@ -125,15 +131,15 @@ impl PuzzleRow {
 }
 
 const COLUMNS: &str = "p.puzzle_id, p.fen, p.moves, p.rating, p.rating_deviation, \
-                       p.popularity, p.nb_plays, p.theme_mask_lo, p.theme_mask_hi, \
+                       p.popularity, p.nb_plays, p.pieces, p.theme_mask_lo, p.theme_mask_hi, \
                        p.opening_id, o.tags, p.game_id, p.game_ply, p.game_black";
 
 const SOURCE: &str = "FROM puzzles p LEFT JOIN openings o ON o.id = p.opening_id";
 
 fn map_row(row: &Row<'_>) -> rusqlite::Result<PuzzleRow> {
-    let game_id: String = row.get(11)?;
-    let game_ply: i64 = row.get(12)?;
-    let game_black: bool = row.get(13)?;
+    let game_id: String = row.get(12)?;
+    let game_ply: i64 = row.get(13)?;
+    let game_black: bool = row.get(14)?;
 
     Ok(PuzzleRow {
         puzzle_id: row.get(0)?,
@@ -143,12 +149,13 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<PuzzleRow> {
         rating_deviation: row.get(4)?,
         popularity: row.get(5)?,
         nb_plays: row.get(6)?,
+        pieces: row.get(7)?,
         mask: ThemeMask {
-            lo: row.get(7)?,
-            hi: row.get(8)?,
+            lo: row.get(8)?,
+            hi: row.get(9)?,
         },
-        opening_id: row.get(9)?,
-        opening_tags: row.get(10)?,
+        opening_id: row.get(10)?,
+        opening_tags: row.get(11)?,
         game: (!game_id.is_empty()).then_some(GameRef {
             game_id,
             ply: game_ply,
@@ -416,6 +423,9 @@ impl Sampler {
         if row.mask.lo & excl.lo != 0 || row.mask.hi & excl.hi != 0 {
             return false;
         }
+        if filter.max_pieces.is_some_and(|max| row.pieces > max) {
+            return false;
+        }
         if !filter.opening_ids.is_empty()
             && !row
                 .opening_id
@@ -485,6 +495,10 @@ impl Sampler {
             params.push(Value::Integer(excl.lo));
             where_sql.push("(p.theme_mask_hi & ?) = 0".to_string());
             params.push(Value::Integer(excl.hi));
+        }
+        if let Some(max) = filter.max_pieces {
+            where_sql.push("p.pieces <= ?".to_string());
+            params.push(Value::Integer(max.into()));
         }
         if !filter.opening_ids.is_empty() {
             let placeholders = vec!["?"; filter.opening_ids.len()].join(", ");
