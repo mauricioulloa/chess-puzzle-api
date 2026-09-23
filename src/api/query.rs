@@ -166,11 +166,45 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<PuzzleRow> {
 
 /// Identifies a countable range scan. `theme` is `None` for the rating-only
 /// scan over the puzzles table.
+///
+/// The piece cap is part of the scan rather than a rejection test: both scans
+/// carry the piece count in their index, so counting and picking under a cap
+/// stays index-only. Rejecting after the fact meant reading a full row per
+/// attempt, and a cap that keeps 8% of a theme sent nearly every sheet to the
+/// exact path, which reads the puzzles table and took tens of seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ScanKey {
     theme: Option<i64>,
     rating_min: i64,
     rating_max: i64,
+    max_pieces: Option<u32>,
+}
+
+impl ScanKey {
+    /// `SELECT {columns}` over this scan, with its parameters. `tail` follows
+    /// the predicate, for ordering and offsets.
+    fn sql(&self, columns: &str, tail: &str) -> (String, Vec<Value>) {
+        let (source, mut params) = match self.theme {
+            Some(theme_id) => (
+                "puzzle_themes WHERE theme_id = ? AND",
+                vec![Value::Integer(theme_id)],
+            ),
+            None => ("puzzles WHERE", Vec::new()),
+        };
+        params.push(Value::Integer(self.rating_min));
+        params.push(Value::Integer(self.rating_max));
+        let pieces = match self.max_pieces {
+            Some(max) => {
+                params.push(Value::Integer(max.into()));
+                " AND pieces <= ?"
+            }
+            None => "",
+        };
+        (
+            format!("SELECT {columns} FROM {source} rating BETWEEN ? AND ?{pieces}{tail}"),
+            params,
+        )
+    }
 }
 
 /// A snapshot of the dataset, for the stats endpoint.
@@ -220,20 +254,10 @@ impl Sampler {
             return Ok(*cached);
         }
 
-        let count: i64 = match key.theme {
-            Some(theme_id) => conn.query_row(
-                "SELECT COUNT(*) FROM puzzle_themes
-                 WHERE theme_id = ?1 AND rating BETWEEN ?2 AND ?3",
-                (theme_id, key.rating_min, key.rating_max),
-                |row| row.get(0),
-            ),
-            None => conn.query_row(
-                "SELECT COUNT(*) FROM puzzles WHERE rating BETWEEN ?1 AND ?2",
-                (key.rating_min, key.rating_max),
-                |row| row.get(0),
-            ),
-        }
-        .context("counting candidates")?;
+        let (sql, params) = key.sql("COUNT(*)", "");
+        let count: i64 = conn
+            .query_row(&sql, params_from_iter(params), |row| row.get(0))
+            .context("counting candidates")?;
 
         self.counts.write().expect("counts lock").insert(key, count);
         Ok(count)
@@ -312,6 +336,7 @@ impl Sampler {
                     theme: Some(theme_id),
                     rating_min,
                     rating_max,
+                    max_pieces: filter.max_pieces,
                 };
                 sized.push((theme_id, self.count_scan(conn, key)?));
             }
@@ -346,6 +371,7 @@ impl Sampler {
                     theme: Some(theme_id),
                     rating_min,
                     rating_max,
+                    max_pieces: filter.max_pieces,
                 },
                 count,
             ),
@@ -354,6 +380,7 @@ impl Sampler {
                     theme: None,
                     rating_min,
                     rating_max,
+                    max_pieces: filter.max_pieces,
                 };
                 let count = self.count_scan(conn, key)?;
                 (key, count)
@@ -385,27 +412,18 @@ impl Sampler {
         key: ScanKey,
         offset: i64,
     ) -> Result<Option<PuzzleRow>> {
-        let id: Option<i64> = match key.theme {
-            Some(theme_id) => conn.query_row(
-                "SELECT puzzle_id FROM puzzle_themes
-                 WHERE theme_id = ?1 AND rating BETWEEN ?2 AND ?3
-                 LIMIT 1 OFFSET ?4",
-                (theme_id, key.rating_min, key.rating_max, offset),
-                |row| row.get(0),
-            ),
-            // Offset over the covering index alone. Selecting the full row
-            // here instead would make SQLite materialise and discard every
-            // skipped row, join included: measured at 136 ms against 3 ms.
-            None => conn.query_row(
-                "SELECT id FROM puzzles
-                 WHERE rating BETWEEN ?1 AND ?2
-                 ORDER BY rating, id LIMIT 1 OFFSET ?3",
-                (key.rating_min, key.rating_max, offset),
-                |row| row.get(0),
-            ),
-        }
-        .optional()
-        .context("picking a candidate")?;
+        // Offset over the covering index alone. Selecting the full row here
+        // instead would make SQLite materialise and discard every skipped
+        // row, join included: measured at 136 ms against 3 ms.
+        let (sql, mut params) = match key.theme {
+            Some(_) => key.sql("puzzle_id", " LIMIT 1 OFFSET ?"),
+            None => key.sql("id", " ORDER BY rating, id LIMIT 1 OFFSET ?"),
+        };
+        params.push(Value::Integer(offset));
+        let id: Option<i64> = conn
+            .query_row(&sql, params_from_iter(params), |row| row.get(0))
+            .optional()
+            .context("picking a candidate")?;
 
         match id {
             Some(id) => self.by_row_id(conn, id),

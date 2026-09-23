@@ -225,8 +225,8 @@ fn insert_chunk(
         let mut insert_opening =
             tx.prepare_cached("INSERT INTO openings (tags) VALUES (?1) RETURNING id")?;
         let mut insert_link = tx.prepare_cached(
-            "INSERT OR IGNORE INTO puzzle_themes (theme_id, rating, puzzle_id)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO puzzle_themes (theme_id, rating, puzzle_id, pieces)
+             VALUES (?1, ?2, ?3, ?4)",
         )?;
 
         for record in chunk.drain(..) {
@@ -306,7 +306,7 @@ fn insert_chunk(
                 .with_context(|| format!("inserting puzzle {}", record.puzzle_id))?;
 
             for theme_id in theme_row_ids {
-                insert_link.execute((theme_id, record.rating, id))?;
+                insert_link.execute((theme_id, record.rating, id, record.pieces))?;
             }
         }
     }

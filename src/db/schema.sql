@@ -51,10 +51,12 @@ CREATE TABLE IF NOT EXISTS puzzles (
 
 -- Covering index disguised as a table: ordering by (theme_id, rating, puzzle_id)
 -- turns "random puzzle with theme T rated between A and B" into a range scan
--- that never touches the `puzzles` table.
+-- that never touches the `puzzles` table. `pieces` rides along so a piece cap
+-- is answered by the same scan.
 CREATE TABLE IF NOT EXISTS puzzle_themes (
     theme_id  INTEGER NOT NULL,
     rating    INTEGER NOT NULL,
     puzzle_id INTEGER NOT NULL,
+    pieces    INTEGER NOT NULL,
     PRIMARY KEY (theme_id, rating, puzzle_id)
 ) WITHOUT ROWID;
