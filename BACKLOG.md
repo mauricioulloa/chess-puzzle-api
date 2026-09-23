@@ -91,14 +91,6 @@ of only revealing the answer. Deliberately deferred: it needs legal-move
 generation in the browser and handling the opponent's replies. Worth doing once
 there is evidence people are using the trainer.
 
-### 11. Delete the retired databases
-
-`/data/puzzles.db` (schema 2) and `/data/puzzles-v3.db` stayed on the volume
-when the service moved to `puzzles-v4.db`. Nothing reads them, but the image
-has no shell, so removing them means stopping the machine and mounting the
-volume on a temporary one: a couple of minutes of downtime to reclaim space
-nothing is short of.
-
 ---
 
 ## Not doing, and why
