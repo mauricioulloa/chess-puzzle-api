@@ -9,8 +9,9 @@ use crate::api::errors::ApiError;
 use crate::auth::keys::KeyStore;
 use crate::auth::ratelimit::{Decision, RateLimiter, Subject};
 use crate::usage::{Collector, FilterSample};
-use axum::extract::{ConnectInfo, Request, State};
-use axum::http::HeaderValue;
+use anyhow::Result;
+use axum::extract::{ConnectInfo, MatchedPath, Request, State};
+use axum::http::{HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
@@ -19,27 +20,47 @@ use std::sync::{Arc, Mutex};
 
 pub struct AuthState {
     pub store: Arc<KeyStore>,
-    pub limiter: Arc<RateLimiter>,
-    /// Buffered request counts, flushed to disk on a timer.
-    pub usage: Mutex<HashMap<i64, u64>>,
-    /// Aggregate counters. Separate from `usage` above, which is per-key
-    /// and private; these are the ones the public endpoint serves.
-    pub stats: Arc<Collector>,
-    pub anonymous_limit: u32,
+    limiter: RateLimiter,
+    /// Per-key request counts, private to the operator.
+    key_usage: Mutex<HashMap<i64, u64>>,
+    /// Aggregate counters, the ones the public endpoint serves.
+    stats: Collector,
+    anonymous_limit: u32,
     /// Whether `X-Forwarded-For` may be believed. Off by default: trusting it
     /// when nothing strips it lets anyone reset their own rate limit by
     /// inventing a header.
-    pub trust_proxy_headers: bool,
+    trust_proxy_headers: bool,
 }
 
 impl AuthState {
-    pub fn take_usage(&self) -> HashMap<i64, u64> {
-        std::mem::take(&mut self.usage.lock().expect("usage lock"))
+    pub fn new(store: KeyStore, anonymous_limit: u32, trust_proxy_headers: bool) -> Self {
+        Self {
+            store: Arc::new(store),
+            limiter: RateLimiter::default(),
+            key_usage: Mutex::new(HashMap::new()),
+            stats: Collector::default(),
+            anonymous_limit,
+            trust_proxy_headers,
+        }
     }
 
-    fn record(&self, key_id: i64) {
+    /// Writes the buffered counters to disk. Buffering keeps a burst of
+    /// traffic from turning into a write per request.
+    pub fn flush(&self) -> Result<()> {
+        let key_usage = std::mem::take(&mut *self.key_usage.lock().expect("usage lock"));
+        self.store.flush_usage(&key_usage)?;
+        let (requests, filters) = self.stats.take();
+        self.store.flush_stats(&requests, &filters)
+    }
+
+    /// Forgets rate-limit windows for callers that have gone away.
+    pub fn prune(&self) {
+        self.limiter.prune();
+    }
+
+    fn record_key_use(&self, key_id: i64) {
         *self
-            .usage
+            .key_usage
             .lock()
             .expect("usage lock")
             .entry(key_id)
@@ -48,7 +69,7 @@ impl AuthState {
 }
 
 fn bearer_token(request: &Request) -> Option<&str> {
-    let header = request.headers().get(axum::http::header::AUTHORIZATION)?;
+    let header = request.headers().get(header::AUTHORIZATION)?;
     let value = header.to_str().ok()?;
     let (scheme, token) = value.split_once(' ')?;
     scheme
@@ -137,43 +158,34 @@ pub async fn enforce(State(auth): State<Arc<AuthState>>, request: Request, next:
             (Subject::Ip(ip), auth.anonymous_limit, None)
         }
     };
-
-    let decision = auth.limiter.check(subject, limit);
-    if !decision.allowed {
-        let mut response = ApiError::RateLimited {
-            retry_after: decision.reset_after,
-            limit: decision.limit,
-        }
-        .into_response();
-        apply_headers(&mut response, decision, key_id.is_some());
-        // A throttled request is still traffic worth seeing in the numbers.
-        let endpoint = request
-            .extensions()
-            .get::<axum::extract::MatchedPath>()
-            .map(|matched| matched.as_str().to_string())
-            .unwrap_or_else(|| request.uri().path().to_string());
-        auth.stats
-            .record_request(&endpoint, response.status().as_u16(), key_id.is_some());
-        return response;
-    }
-
-    if let Some(id) = key_id {
-        auth.record(id);
-    }
+    let keyed = key_id.is_some();
 
     // MatchedPath is the route template, not the concrete URL, so the
     // counters never accumulate a row per puzzle id.
     let endpoint = request
         .extensions()
-        .get::<axum::extract::MatchedPath>()
+        .get::<MatchedPath>()
         .map(|matched| matched.as_str().to_string())
         .unwrap_or_else(|| request.uri().path().to_string());
 
-    let mut response = next.run(request).await;
-    apply_headers(&mut response, decision, key_id.is_some());
+    let decision = auth.limiter.check(subject, limit);
+    let mut response = if decision.allowed {
+        if let Some(id) = key_id {
+            auth.record_key_use(id);
+        }
+        next.run(request).await
+    } else {
+        ApiError::RateLimited {
+            retry_after: decision.reset_after,
+            limit: decision.limit,
+        }
+        .into_response()
+    };
+    apply_headers(&mut response, decision, keyed);
 
+    // A throttled request is still traffic worth seeing in the numbers.
     auth.stats
-        .record_request(&endpoint, response.status().as_u16(), key_id.is_some());
+        .record_request(&endpoint, response.status().as_u16(), keyed);
     // Handlers that take filters describe them through the response, so each
     // one does not need its own path to the collector.
     if let Some(sample) = response.extensions().get::<FilterSample>() {

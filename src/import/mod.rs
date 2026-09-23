@@ -8,9 +8,9 @@ use clap::Args;
 use std::path::PathBuf;
 use std::time::Instant;
 
-pub use load::{Filters, ImportStats};
+use load::{Filters, ImportStats};
 
-pub const DEFAULT_SOURCE_URL: &str = "https://database.lichess.org/lichess_db_puzzle.csv.zst";
+const DEFAULT_SOURCE_URL: &str = "https://database.lichess.org/lichess_db_puzzle.csv.zst";
 
 #[derive(Args, Debug)]
 pub struct ImportArgs {
@@ -131,11 +131,11 @@ pub async fn run(args: ImportArgs) -> Result<()> {
     }
 
     drop(conn);
-    report(&args, &stats, started.elapsed())?;
+    report(&args, &stats, started.elapsed());
     Ok(())
 }
 
-fn report(args: &ImportArgs, stats: &ImportStats, elapsed: std::time::Duration) -> Result<()> {
+fn report(args: &ImportArgs, stats: &ImportStats, elapsed: std::time::Duration) {
     let bytes = std::fs::metadata(&args.output)
         .map(|m| m.len())
         .unwrap_or(0);
@@ -162,5 +162,4 @@ fn report(args: &ImportArgs, stats: &ImportStats, elapsed: std::time::Duration) 
         args.output.display(),
         bytes as f64 / 1_048_576.0
     );
-    Ok(())
 }

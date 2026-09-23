@@ -56,6 +56,14 @@ impl ThemeMask {
         }
     }
 
+    pub fn from_ids(ids: &[i64]) -> Self {
+        let mut mask = Self::default();
+        for &id in ids {
+            mask.set(id);
+        }
+        mask
+    }
+
     pub fn contains(&self, theme_id: i64) -> bool {
         let bit = (theme_id - 1) as u32;
         if bit < 64 {

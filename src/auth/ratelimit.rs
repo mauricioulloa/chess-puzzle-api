@@ -40,10 +40,6 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn check(&self, subject: Subject, limit: u32) -> Decision {
         self.check_at(subject, limit, Instant::now())
     }
@@ -95,15 +91,17 @@ impl RateLimiter {
             .expect("rate limiter lock")
             .retain(|_, window| now.duration_since(window.started) < cutoff);
     }
-
-    pub fn tracked(&self) -> usize {
-        self.windows.lock().expect("rate limiter lock").len()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl RateLimiter {
+        fn tracked(&self) -> usize {
+            self.windows.lock().expect("rate limiter lock").len()
+        }
+    }
     use std::net::Ipv4Addr;
 
     fn ip(last: u8) -> Subject {
@@ -112,7 +110,7 @@ mod tests {
 
     #[test]
     fn allows_up_to_the_limit_then_refuses() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         for expected_remaining in (0..3).rev() {
             let decision = limiter.check(ip(1), 3);
             assert!(decision.allowed);
@@ -127,7 +125,7 @@ mod tests {
 
     #[test]
     fn subjects_do_not_share_a_budget() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         for _ in 0..3 {
             assert!(limiter.check(ip(1), 3).allowed);
         }
@@ -141,7 +139,7 @@ mod tests {
 
     #[test]
     fn the_window_rolls_over() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         let start = Instant::now();
 
         for _ in 0..3 {
@@ -157,13 +155,13 @@ mod tests {
 
     #[test]
     fn a_zero_limit_refuses_everything() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         assert!(!limiter.check(ip(1), 0).allowed);
     }
 
     #[test]
     fn pruning_drops_only_stale_windows() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         let start = Instant::now();
         limiter.check_at(ip(1), 10, start);
         limiter.check_at(ip(2), 10, start + WINDOW * 2);

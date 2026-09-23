@@ -62,9 +62,9 @@ pub struct ImportStats {
     pub unparsed_game_urls: u64,
 }
 
-/// Rejects rows we could never serve correctly. Cheap structural checks only;
-/// we deliberately do not validate chess legality, which would mean pulling in
-/// a full move generator to re-verify data Lichess already validated.
+/// Rejects rows we could never serve correctly. Cheap structural checks only:
+/// replaying three million puzzles to re-verify legality would re-check data
+/// Lichess already validated, and the API degrades gracefully if one fails.
 fn validate(rec: &Record) -> Result<(), &'static str> {
     if rec.puzzle_id.is_empty() {
         return Err("empty puzzle id");
@@ -108,6 +108,15 @@ fn progress_bar() -> ProgressBar {
     bar
 }
 
+/// Assigns dense ids to puzzles and interns themes and openings as they are
+/// first seen.
+#[derive(Default)]
+struct Ids {
+    last_puzzle: i64,
+    themes: HashMap<String, i64>,
+    openings: HashMap<String, i64>,
+}
+
 pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<ImportStats> {
     db::apply_schema(conn)?;
 
@@ -117,9 +126,7 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         .from_reader(open_reader(source)?);
 
     let mut stats = ImportStats::default();
-    let mut theme_ids: HashMap<String, i64> = HashMap::new();
-    let mut opening_ids: HashMap<String, i64> = HashMap::new();
-    let mut next_id: i64 = 0;
+    let mut ids = Ids::default();
     let mut chunk: Vec<Record> = Vec::with_capacity(CHUNK);
     let bar = progress_bar();
 
@@ -161,14 +168,7 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         chunk.push(record);
 
         if chunk.len() >= CHUNK {
-            insert_chunk(
-                conn,
-                &mut chunk,
-                &mut next_id,
-                &mut theme_ids,
-                &mut opening_ids,
-                &mut stats.unparsed_game_urls,
-            )?;
+            insert_chunk(conn, &mut chunk, &mut ids, &mut stats)?;
         }
         if filters
             .limit
@@ -178,30 +178,20 @@ pub fn load(conn: &mut Connection, source: &Path, filters: Filters) -> Result<Im
         }
     }
 
-    insert_chunk(
-        conn,
-        &mut chunk,
-        &mut next_id,
-        &mut theme_ids,
-        &mut opening_ids,
-        &mut stats.unparsed_game_urls,
-    )?;
+    insert_chunk(conn, &mut chunk, &mut ids, &mut stats)?;
     bar.set_position(stats.rows_read);
     bar.finish_with_message(format!("{} kept", stats.accepted));
 
-    stats.theme_count = theme_ids.len() as u64;
-    stats.opening_count = opening_ids.len() as u64;
+    stats.theme_count = ids.themes.len() as u64;
+    stats.opening_count = ids.openings.len() as u64;
     Ok(stats)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn insert_chunk(
     conn: &mut Connection,
     chunk: &mut Vec<Record>,
-    next_id: &mut i64,
-    theme_ids: &mut HashMap<String, i64>,
-    opening_ids: &mut HashMap<String, i64>,
-    unparsed_game_urls: &mut u64,
+    ids: &mut Ids,
+    stats: &mut ImportStats,
 ) -> Result<()> {
     if chunk.is_empty() {
         return Ok(());
@@ -225,17 +215,17 @@ fn insert_chunk(
         )?;
 
         for record in chunk.drain(..) {
-            *next_id += 1;
-            let id = *next_id;
+            ids.last_puzzle += 1;
+            let id = ids.last_puzzle;
 
             // Intern themes first so the mask and the junction rows agree.
             let mut mask = ThemeMask::default();
             let mut theme_row_ids: Vec<i64> = Vec::new();
             for theme in record.themes.split_whitespace() {
-                let theme_id = match theme_ids.get(theme) {
+                let theme_id = match ids.themes.get(theme) {
                     Some(id) => *id,
                     None => {
-                        if theme_ids.len() >= MAX_THEMES {
+                        if ids.themes.len() >= MAX_THEMES {
                             bail!(
                                 "the dump has more than {MAX_THEMES} distinct themes, \
                                  which no longer fit the 128-bit theme mask"
@@ -244,7 +234,7 @@ fn insert_chunk(
                         let new_id: i64 = insert_theme
                             .query_row((theme,), |row| row.get(0))
                             .with_context(|| format!("interning theme {theme}"))?;
-                        theme_ids.insert(theme.to_string(), new_id);
+                        ids.themes.insert(theme.to_string(), new_id);
                         new_id
                     }
                 };
@@ -255,7 +245,7 @@ fn insert_chunk(
             let opening_id = if record.opening_tags.is_empty() {
                 None
             } else {
-                Some(match opening_ids.get(&record.opening_tags) {
+                Some(match ids.openings.get(&record.opening_tags) {
                     Some(id) => *id,
                     None => {
                         let new_id: i64 = insert_opening
@@ -263,7 +253,7 @@ fn insert_chunk(
                             .with_context(|| {
                                 format!("interning opening {}", record.opening_tags)
                             })?;
-                        opening_ids.insert(record.opening_tags.clone(), new_id);
+                        ids.openings.insert(record.opening_tags.clone(), new_id);
                         new_id
                     }
                 })
@@ -273,7 +263,7 @@ fn insert_chunk(
             // the API simply omits the link for that row.
             let game = parse::parse_game_url(&record.game_url);
             if game.is_none() {
-                *unparsed_game_urls += 1;
+                stats.unparsed_game_urls += 1;
             }
             let (game_id, game_ply, game_black) = match &game {
                 Some(game) => (game.game_id.as_str(), game.ply, game.black),

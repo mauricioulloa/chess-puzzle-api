@@ -5,6 +5,7 @@
 //! backup of `api.db` does not hand anyone a working key, and a lost key
 //! cannot be recovered, only replaced.
 
+use crate::usage::{self, FilterKey, RequestKey};
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -84,18 +85,16 @@ impl KeyStore {
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .context("configuring the key database")?;
-        conn.execute_batch(SCHEMA).context("creating key schema")?;
-        conn.execute_batch(crate::usage::SCHEMA)
-            .context("creating usage schema")?;
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+        Self::with_schema(conn)
     }
 
     pub fn in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory().context("in-memory key database")?;
+        Self::with_schema(Connection::open_in_memory().context("in-memory key database")?)
+    }
+
+    fn with_schema(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA).context("creating key schema")?;
-        conn.execute_batch(crate::usage::SCHEMA)
+        conn.execute_batch(usage::SCHEMA)
             .context("creating usage schema")?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -180,14 +179,13 @@ impl KeyStore {
         Ok(rows)
     }
 
-    /// Drains the aggregate usage counters to disk.
     pub fn flush_stats(
         &self,
-        requests: &HashMap<crate::usage::RequestKey, u64>,
-        filters: &HashMap<crate::usage::FilterKey, u64>,
+        requests: &HashMap<RequestKey, u64>,
+        filters: &HashMap<FilterKey, u64>,
     ) -> Result<()> {
         let mut conn = self.conn.lock().expect("key store lock");
-        crate::usage::flush(&mut conn, requests, filters)
+        usage::flush(&mut conn, requests, filters)
     }
 
     /// Runs a read against `api.db`. Used by the usage endpoint, which reads
@@ -197,8 +195,6 @@ impl KeyStore {
         query(&conn)
     }
 
-    /// Writes buffered usage counts. Called on a timer rather than per
-    /// request, so a burst of traffic does not turn into a write per hit.
     pub fn flush_usage(&self, usage: &HashMap<i64, u64>) -> Result<()> {
         if usage.is_empty() {
             return Ok(());

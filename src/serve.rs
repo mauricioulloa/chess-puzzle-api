@@ -3,14 +3,12 @@ use crate::api::query::Sampler;
 use crate::api::routes;
 use crate::auth::keys::KeyStore;
 use crate::auth::middleware::AuthState;
-use crate::auth::ratelimit::RateLimiter;
 use crate::db::pool;
 use anyhow::{Context, Result};
 use clap::Args;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 
@@ -78,15 +76,11 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         args.db.display()
     );
 
-    let store = Arc::new(KeyStore::open(&args.api_db)?);
-    let auth = Arc::new(AuthState {
-        store: Arc::clone(&store),
-        limiter: Arc::new(RateLimiter::new()),
-        usage: Mutex::new(HashMap::new()),
-        stats: Arc::new(crate::usage::Collector::new()),
-        anonymous_limit: args.anonymous_limit,
-        trust_proxy_headers: args.trust_proxy_headers,
-    });
+    let auth = Arc::new(AuthState::new(
+        KeyStore::open(&args.api_db)?,
+        args.anonymous_limit,
+        args.trust_proxy_headers,
+    ));
 
     if args.trust_proxy_headers {
         tracing::warn!("trusting X-Forwarded-For; only correct behind a proxy that sets it");
@@ -96,16 +90,17 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         args.anonymous_limit
     );
 
-    tokio::spawn(maintenance(Arc::clone(&auth), Arc::clone(&store)));
-
-    let state = Arc::new(Sampler::new(pool, catalog));
     if !args.mcp_allowed_hosts.is_empty() {
         tracing::info!(
             "MCP endpoint answers to {}",
             args.mcp_allowed_hosts.join(", ")
         );
     }
-    let app = routes::router(state, Arc::clone(&auth), &args.mcp_allowed_hosts);
+
+    tokio::spawn(maintenance(Arc::clone(&auth)));
+
+    let sampler = Arc::new(Sampler::new(pool, catalog));
+    let app = routes::router(sampler, Arc::clone(&auth), &args.mcp_allowed_hosts);
 
     let listener = TcpListener::bind(&args.bind)
         .await
@@ -122,31 +117,23 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     .context("serving")?;
 
     // Whatever accumulated since the last tick would otherwise be lost.
-    if let Err(err) = store.flush_usage(&auth.take_usage()) {
-        tracing::warn!("could not flush per-key usage on shutdown: {err:#}");
-    }
-    let (requests, filters) = auth.stats.take();
-    if let Err(err) = store.flush_stats(&requests, &filters) {
-        tracing::warn!("could not flush usage counters on shutdown: {err:#}");
-    }
+    flush(&auth);
     Ok(())
 }
 
-/// Periodically persists usage counts and forgets rate-limit windows for
-/// callers that have gone away.
-async fn maintenance(auth: Arc<AuthState>, store: Arc<KeyStore>) {
+async fn maintenance(auth: Arc<AuthState>) {
     let mut ticker = tokio::time::interval(MAINTENANCE_INTERVAL);
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        if let Err(err) = store.flush_usage(&auth.take_usage()) {
-            tracing::warn!("could not flush per-key usage: {err:#}");
-        }
-        let (requests, filters) = auth.stats.take();
-        if let Err(err) = store.flush_stats(&requests, &filters) {
-            tracing::warn!("could not flush usage counters: {err:#}");
-        }
-        auth.limiter.prune();
+        flush(&auth);
+        auth.prune();
+    }
+}
+
+fn flush(auth: &AuthState) {
+    if let Err(err) = auth.flush() {
+        tracing::warn!("could not flush usage counters: {err:#}");
     }
 }
 

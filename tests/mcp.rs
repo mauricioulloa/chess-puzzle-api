@@ -1,62 +1,24 @@
 //! The MCP surface, exercised over the real HTTP transport.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use chess_puzzle_api::api::catalog::Catalog;
 use chess_puzzle_api::api::query::Sampler;
 use chess_puzzle_api::api::routes;
 use chess_puzzle_api::auth::keys::KeyStore;
 use chess_puzzle_api::auth::middleware::AuthState;
-use chess_puzzle_api::auth::ratelimit::RateLimiter;
-use chess_puzzle_api::db;
-use chess_puzzle_api::import::load::{self, Filters};
+use common::fixture_sampler;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/puzzles_sample.csv"
-);
-
 fn harness() -> (TempDir, Arc<Sampler>, Arc<AuthState>) {
-    let dir = TempDir::new().expect("temp dir");
-    let path = dir.path().join("puzzles.db");
-
-    let mut conn = db::open_for_import(&path).expect("open");
-    load::load(
-        &mut conn,
-        &PathBuf::from(FIXTURE),
-        Filters {
-            min_popularity: 90,
-            min_plays: 100,
-            limit: None,
-        },
-    )
-    .expect("import");
-    load::finalise(&conn, false).expect("finalise");
-    drop(conn);
-
-    let pool = db::pool::open_read_only(&path, 2).expect("pool");
-    let catalog = {
-        let conn = pool.get().expect("connection");
-        Catalog::load(&conn).expect("catalog")
-    };
-
-    let auth = Arc::new(AuthState {
-        store: Arc::new(KeyStore::in_memory().expect("keys")),
-        limiter: Arc::new(RateLimiter::new()),
-        usage: Mutex::new(HashMap::new()),
-        stats: Arc::new(chess_puzzle_api::usage::Collector::new()),
-        anonymous_limit: u32::MAX,
-        trust_proxy_headers: false,
-    });
-
-    (dir, Arc::new(Sampler::new(pool, catalog)), auth)
+    let (dir, sampler) = fixture_sampler();
+    let auth = AuthState::new(KeyStore::in_memory().expect("keys"), u32::MAX, false);
+    (dir, sampler, Arc::new(auth))
 }
 
 async fn rpc(sampler: &Arc<Sampler>, auth: &Arc<AuthState>, body: Value) -> Value {
@@ -336,4 +298,39 @@ async fn a_public_hostname_must_be_allowed_explicitly() {
         call(vec!["chess.mauriulloa.com".to_string()], "evil.example.com").await,
         StatusCode::FORBIDDEN
     );
+}
+
+#[tokio::test]
+async fn agents_share_the_rate_limit() {
+    let (_dir, sampler, _) = harness();
+    let auth = Arc::new(AuthState::new(
+        KeyStore::in_memory().expect("keys"),
+        1,
+        false,
+    ));
+    let app = routes::router(sampler, auth, &[]);
+
+    let mut statuses = Vec::new();
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json, text/event-stream")
+                    .header("host", "localhost")
+                    .body(Body::from(
+                        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .expect("request");
+        statuses.push(response.status());
+    }
+
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::TOO_MANY_REQUESTS]);
 }

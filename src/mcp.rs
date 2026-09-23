@@ -8,7 +8,9 @@
 //! opponent's move.
 
 use crate::api::catalog::Catalog;
-use crate::api::query::{PuzzleFilter, PuzzleRow, Sampler, ThemesMode};
+use crate::api::query::{
+    DEFAULT_TOLERANCE, PuzzleFilter, PuzzleRow, Sampler, ThemesMode, band_around,
+};
 use crate::chess;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{ErrorData, Implementation, ServerCapabilities, ServerConfig};
@@ -115,6 +117,16 @@ fn internal(error: anyhow::Error) -> ErrorData {
     ErrorData::internal_error("The puzzle service failed to answer.", None)
 }
 
+/// Runs a blocking SQLite query off the async workers.
+async fn blocking<T: Send + 'static>(
+    task: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, ErrorData> {
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|err| internal(anyhow::anyhow!(err)))?
+        .map_err(internal)
+}
+
 fn to_mcp(row: &PuzzleRow, catalog: &Catalog) -> Result<McpPuzzle, ErrorData> {
     let annotated = chess::annotate(&row.fen, &row.moves)
         .map_err(|err| internal(err.context("annotating a puzzle")))?;
@@ -146,22 +158,22 @@ impl PuzzleTools {
         Self { sampler }
     }
 
-    fn resolve(&self, names: &[String], field: &str) -> Result<Vec<i64>, ErrorData> {
-        let mut ids = Vec::new();
-        let mut unknown = Vec::new();
-        for name in names {
-            match self.sampler.catalog.get(name) {
-                Some(theme) => ids.push(theme.id),
-                None => unknown.push(name.clone()),
-            }
-        }
-        if !unknown.is_empty() {
-            return Err(invalid(format!(
+    fn resolve(&self, names: Option<&[String]>, field: &str) -> Result<Vec<i64>, ErrorData> {
+        let names = names.unwrap_or_default().iter().map(String::as_str);
+        self.sampler.catalog.resolve(names).map_err(|unknown| {
+            invalid(format!(
                 "Unknown {field}: {}. Call list_themes for the valid names.",
                 unknown.join(", ")
-            )));
-        }
-        Ok(ids)
+            ))
+        })
+    }
+
+    async fn lookup(&self, puzzle_id: &str) -> Result<PuzzleRow, ErrorData> {
+        let sampler = Arc::clone(&self.sampler);
+        let id = puzzle_id.to_string();
+        blocking(move || sampler.by_puzzle_id(&id))
+            .await?
+            .ok_or_else(|| invalid(format!("No puzzle with id {puzzle_id}")))
     }
 
     #[tool(
@@ -181,42 +193,26 @@ impl PuzzleTools {
             return Err(invalid(format!("count must be between 1 and {MAX_COUNT}")));
         }
 
-        let tolerance = args.tolerance.unwrap_or(100).max(0);
-        let (rating_min, rating_max) = match args.rating {
-            Some(rating) => (
-                Some((rating - tolerance).max(0)),
-                Some((rating + tolerance).min(4000)),
-            ),
-            None => (None, None),
-        };
+        let tolerance = args.tolerance.unwrap_or(DEFAULT_TOLERANCE).max(0);
+        let band = args.rating.map(|rating| band_around(rating, tolerance));
 
         let mode = match args.themes_mode.as_deref() {
-            None | Some("all") => ThemesMode::All,
-            Some("any") => ThemesMode::Any,
-            Some(other) => {
-                return Err(invalid(format!(
-                    "themes_mode must be all or any, got {other}"
-                )));
-            }
+            None => ThemesMode::All,
+            Some(value) => ThemesMode::parse(value)
+                .ok_or_else(|| invalid(format!("themes_mode must be all or any, got {value}")))?,
         };
 
         let filter = PuzzleFilter {
-            rating_min,
-            rating_max,
-            include: self.resolve(args.themes.as_deref().unwrap_or_default(), "themes")?,
-            exclude: self.resolve(
-                args.exclude_themes.as_deref().unwrap_or_default(),
-                "exclude_themes",
-            )?,
+            rating_min: band.map(|(min, _)| min),
+            rating_max: band.map(|(_, max)| max),
+            include: self.resolve(args.themes.as_deref(), "themes")?,
+            exclude: self.resolve(args.exclude_themes.as_deref(), "exclude_themes")?,
             mode,
             opening_ids: Vec::new(),
         };
 
         let sampler = Arc::clone(&self.sampler);
-        let rows = tokio::task::spawn_blocking(move || sampler.random(&filter, count))
-            .await
-            .map_err(|err| internal(anyhow::anyhow!(err)))?
-            .map_err(internal)?;
+        let rows = blocking(move || sampler.random(&filter, count)).await?;
 
         if rows.is_empty() {
             return Err(invalid(
@@ -301,10 +297,7 @@ impl PuzzleTools {
     )]
     async fn get_dataset_stats(&self) -> Result<Json<McpStats>, ErrorData> {
         let sampler = Arc::clone(&self.sampler);
-        let stats = tokio::task::spawn_blocking(move || sampler.stats())
-            .await
-            .map_err(|err| internal(anyhow::anyhow!(err)))?
-            .map_err(internal)?;
+        let stats = blocking(move || sampler.stats()).await?;
 
         Ok(Json(McpStats {
             puzzles: stats.puzzles,
@@ -314,18 +307,6 @@ impl PuzzleTools {
             source: "Lichess puzzle database".to_string(),
             license: "CC0 1.0 (public domain)".to_string(),
         }))
-    }
-}
-
-impl PuzzleTools {
-    async fn lookup(&self, puzzle_id: &str) -> Result<PuzzleRow, ErrorData> {
-        let sampler = Arc::clone(&self.sampler);
-        let id = puzzle_id.to_string();
-        tokio::task::spawn_blocking(move || sampler.by_puzzle_id(&id))
-            .await
-            .map_err(|err| internal(anyhow::anyhow!(err)))?
-            .map_err(internal)?
-            .ok_or_else(|| invalid(format!("No puzzle with id {puzzle_id}")))
     }
 }
 

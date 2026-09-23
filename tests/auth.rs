@@ -1,27 +1,19 @@
 //! Authentication and rate limiting over the real HTTP stack.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use chess_puzzle_api::api::catalog::Catalog;
 use chess_puzzle_api::api::query::Sampler;
 use chess_puzzle_api::api::routes;
 use chess_puzzle_api::auth::keys::KeyStore;
 use chess_puzzle_api::auth::middleware::AuthState;
-use chess_puzzle_api::auth::ratelimit::RateLimiter;
-use chess_puzzle_api::db;
-use chess_puzzle_api::import::load::{self, Filters};
+use common::fixture_sampler;
 use http_body_util::BodyExt;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
-
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/puzzles_sample.csv"
-);
 
 struct Harness {
     _dir: TempDir,
@@ -38,40 +30,12 @@ fn harness_behind_proxy(anonymous_limit: u32) -> Harness {
 }
 
 fn build(anonymous_limit: u32, trust_proxy_headers: bool) -> Harness {
-    let dir = TempDir::new().expect("temp dir");
-    let path = dir.path().join("puzzles.db");
-
-    let mut conn = db::open_for_import(&path).expect("open");
-    load::load(
-        &mut conn,
-        &PathBuf::from(FIXTURE),
-        Filters {
-            min_popularity: 90,
-            min_plays: 100,
-            limit: None,
-        },
-    )
-    .expect("import");
-    load::finalise(&conn, false).expect("finalise");
-    drop(conn);
-
-    let pool = db::pool::open_read_only(&path, 2).expect("pool");
-    let catalog = {
-        let conn = pool.get().expect("connection");
-        Catalog::load(&conn).expect("catalog")
-    };
-
+    let (dir, sampler) = fixture_sampler();
+    let store = KeyStore::in_memory().expect("key store");
     Harness {
         _dir: dir,
-        sampler: Arc::new(Sampler::new(pool, catalog)),
-        auth: Arc::new(AuthState {
-            store: Arc::new(KeyStore::in_memory().expect("key store")),
-            limiter: Arc::new(RateLimiter::new()),
-            usage: Mutex::new(HashMap::new()),
-            stats: Arc::new(chess_puzzle_api::usage::Collector::new()),
-            anonymous_limit,
-            trust_proxy_headers,
-        }),
+        sampler,
+        auth: Arc::new(AuthState::new(store, anonymous_limit, trust_proxy_headers)),
     }
 }
 
@@ -201,11 +165,12 @@ async fn key_usage_is_counted() {
         request(&harness, "/v1/puzzles/random", Some(&key)).await;
     }
 
-    let usage = harness.auth.take_usage();
-    assert_eq!(usage.get(&1), Some(&4));
-    assert!(
-        harness.auth.take_usage().is_empty(),
-        "taking usage must drain the buffer so flushes are not double counted"
+    harness.auth.flush().expect("flush");
+    harness.auth.flush().expect("second flush");
+    assert_eq!(
+        harness.auth.store.list().expect("keys")[0].request_count,
+        4,
+        "flushing must drain the buffer so nothing is counted twice"
     );
 }
 
@@ -238,12 +203,7 @@ async fn a_malformed_authorization_header_falls_back_to_anonymous() {
 /// Counters buffer in memory and the endpoint reads disk, so tests drain the
 /// buffer the way the maintenance task does.
 fn flush(harness: &Harness) {
-    let (requests, filters) = harness.auth.stats.take();
-    harness
-        .auth
-        .store
-        .flush_stats(&requests, &filters)
-        .expect("flush");
+    harness.auth.flush().expect("flush");
 }
 
 #[tokio::test]

@@ -40,12 +40,3 @@ pub fn open_read_only(path: &Path, pool_size: u32) -> Result<SqlitePool> {
         .build(manager)
         .with_context(|| format!("opening {} for reading", path.display()))
 }
-
-pub fn get_meta(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>> {
-    let value = conn
-        .query_row("SELECT value FROM meta WHERE key = ?1", (key,), |row| {
-            row.get::<_, String>(0)
-        })
-        .ok();
-    Ok(value)
-}

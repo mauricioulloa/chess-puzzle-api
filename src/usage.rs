@@ -10,6 +10,7 @@
 //! `api_keys` where only the operator can read them. That is what makes the
 //! endpoint publishable rather than something that has to be protected.
 
+use crate::api::models::{DailyTally, PopularFilters, Tally, UsageResponse, UsageTotals};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -77,11 +78,16 @@ pub fn rating_band(rating: i64) -> String {
     format!("{floor}-{}", floor + 199)
 }
 
-pub fn today() -> String {
+/// How far back the public report reaches.
+const REPORT_WINDOW_DAYS: i64 = 30;
+
+/// How many values each popular-filter list shows.
+const POPULAR_LIMIT: i64 = 25;
+
+fn today() -> jiff::civil::Date {
     jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
         .date()
-        .to_string()
 }
 
 /// In-memory counters, drained to disk by the maintenance task.
@@ -92,13 +98,9 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn record_request(&self, endpoint: &str, status: u16, keyed: bool) {
         let key = RequestKey {
-            day: today(),
+            day: today().to_string(),
             endpoint: endpoint.to_string(),
             status,
             keyed,
@@ -112,7 +114,7 @@ impl Collector {
     }
 
     pub fn record_filters(&self, sample: &FilterSample) {
-        let day = today();
+        let day = today().to_string();
         let mut filters = self.filters.lock().expect("usage lock");
         let mut bump = |dimension: &str, value: &str| {
             *filters
@@ -194,6 +196,96 @@ pub fn flush(
     Ok(())
 }
 
+/// The public usage report over the last [`REPORT_WINDOW_DAYS`].
+pub fn report(conn: &Connection) -> Result<UsageResponse> {
+    let since = today()
+        .saturating_sub(jiff::Span::new().days(REPORT_WINDOW_DAYS))
+        .to_string();
+
+    let totals = conn
+        .query_row(
+            "SELECT COALESCE(SUM(count), 0),
+                    COALESCE(SUM(CASE WHEN keyed = 0 THEN count ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN keyed = 1 THEN count ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status >= 400 THEN count ELSE 0 END), 0)
+             FROM usage_daily WHERE day >= ?1",
+            (&since,),
+            |row| {
+                Ok(UsageTotals {
+                    requests: row.get(0)?,
+                    anonymous: row.get(1)?,
+                    keyed: row.get(2)?,
+                    errors: row.get(3)?,
+                })
+            },
+        )
+        .context("reading usage totals")?;
+
+    let daily = conn
+        .prepare(
+            "SELECT day, SUM(count), SUM(CASE WHEN status >= 400 THEN count ELSE 0 END)
+             FROM usage_daily WHERE day >= ?1 GROUP BY day ORDER BY day",
+        )?
+        .query_map((&since,), |row| {
+            Ok(DailyTally {
+                day: row.get(0)?,
+                requests: row.get(1)?,
+                errors: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("reading daily usage")?;
+
+    let popular = |dimension: &str| {
+        tallies(
+            conn,
+            "SELECT value, SUM(count) FROM filter_usage_daily
+             WHERE day >= ?1 AND dimension = ?2
+             GROUP BY value ORDER BY SUM(count) DESC LIMIT ?3",
+            (&since, dimension, POPULAR_LIMIT),
+        )
+    };
+
+    Ok(UsageResponse {
+        generated_at: jiff::Timestamp::now().to_string(),
+        totals,
+        daily,
+        by_endpoint: tallies(
+            conn,
+            "SELECT endpoint, SUM(count) FROM usage_daily WHERE day >= ?1
+             GROUP BY endpoint ORDER BY SUM(count) DESC",
+            (&since,),
+        )?,
+        by_status: tallies(
+            conn,
+            "SELECT CAST(status AS TEXT), SUM(count) FROM usage_daily WHERE day >= ?1
+             GROUP BY status ORDER BY SUM(count) DESC",
+            (&since,),
+        )?,
+        popular: PopularFilters {
+            themes: popular(dimensions::THEME)?,
+            excluded_themes: popular(dimensions::EXCLUDED_THEME)?,
+            rating_bands: popular(dimensions::RATING_BAND)?,
+            options: popular(dimensions::OPTION)?,
+        },
+        since,
+        note: "Aggregate counts only. Requests are split by whether they carried an \
+               API key, never by which one, and no client address is stored.",
+    })
+}
+
+fn tallies(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<Tally>> {
+    conn.prepare(sql)?
+        .query_map(params, |row| {
+            Ok(Tally {
+                value: row.get(0)?,
+                requests: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("reading usage tally")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,7 +308,7 @@ mod tests {
     #[test]
     fn counters_accumulate_across_flushes() {
         let mut conn = store();
-        let collector = Collector::new();
+        let collector = Collector::default();
 
         for _ in 0..3 {
             collector.record_request("/v1/puzzles/random", 200, false);
@@ -239,7 +331,7 @@ mod tests {
 
     #[test]
     fn taking_drains_the_buffer() {
-        let collector = Collector::new();
+        let collector = Collector::default();
         collector.record_request("/v1/themes", 200, true);
 
         let (requests, _) = collector.take();
@@ -255,7 +347,7 @@ mod tests {
     #[test]
     fn anonymous_and_keyed_traffic_are_counted_apart() {
         let mut conn = store();
-        let collector = Collector::new();
+        let collector = Collector::default();
         collector.record_request("/v1/puzzles/random", 200, false);
         collector.record_request("/v1/puzzles/random", 200, true);
 
@@ -271,7 +363,7 @@ mod tests {
     #[test]
     fn no_counter_can_identify_a_caller() {
         let mut conn = store();
-        let collector = Collector::new();
+        let collector = Collector::default();
         collector.record_request("/v1/puzzles/random", 200, true);
         let (requests, filters) = collector.take();
         flush(&mut conn, &requests, &filters).unwrap();
@@ -291,7 +383,7 @@ mod tests {
     #[test]
     fn filter_dimensions_are_recorded_separately() {
         let mut conn = store();
-        let collector = Collector::new();
+        let collector = Collector::default();
         collector.record_filters(&FilterSample {
             themes: vec!["fork".into(), "pin".into()],
             excluded_themes: vec!["endgame".into()],

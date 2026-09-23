@@ -1,17 +1,29 @@
+use crate::api::docs::{ApiDoc, DOCS_HTML};
 use crate::api::errors::{ApiError, ApiResult, ErrorBody};
 use crate::api::models::*;
-use crate::api::query::{PuzzleFilter, RATING_CEILING, RATING_FLOOR, Sampler, ThemesMode};
+use crate::api::pages::{self, SiteFacts};
+use crate::api::query::{
+    DEFAULT_TOLERANCE, PuzzleFilter, PuzzleRow, RATING_CEILING, RATING_FLOOR, Sampler, ThemesMode,
+    band_around,
+};
+use crate::auth::keys::KeyStore;
+use crate::db::meta_keys;
 use crate::usage::{self, FilterSample};
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, HeaderName, header};
+use axum::response::{Html, IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 
 pub type SharedState = Arc<Sampler>;
 
+/// The usage endpoint reads `api.db`, which the key store owns, so it carries
+/// its own state rather than the puzzle sampler.
+pub type UsageState = Arc<KeyStore>;
+
 const MAX_COUNT: usize = 50;
-const DEFAULT_TOLERANCE: i64 = 100;
 const THEME_DOCS: &str = "https://lichess.org/training/themes";
 
 /// `deny_unknown_fields` turns a typo into a 400 instead of a silently ignored
@@ -73,34 +85,29 @@ fn bad_request(message: impl Into<String>, hint: Option<String>) -> ApiError {
     }
 }
 
-fn split_list(raw: &str) -> Vec<&str> {
-    raw.split([',', ' '])
+fn resolve_themes(sampler: &Sampler, raw: Option<&str>, field: &str) -> ApiResult<Vec<i64>> {
+    let names = raw
+        .unwrap_or_default()
+        .split([',', ' '])
         .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .collect()
-}
-
-fn resolve_themes(sampler: &Sampler, raw: &str, field: &str) -> ApiResult<Vec<i64>> {
-    let mut ids = Vec::new();
-    let mut unknown = Vec::new();
-
-    for name in split_list(raw) {
-        match sampler.catalog.get(name) {
-            Some(theme) => ids.push(theme.id),
-            None => unknown.push(name.to_string()),
-        }
-    }
-
-    if !unknown.is_empty() {
-        return Err(bad_request(
+        .filter(|name| !name.is_empty());
+    sampler.catalog.resolve(names).map_err(|unknown| {
+        bad_request(
             format!("Unknown {field}: {}", unknown.join(", ")),
             Some(format!(
                 "GET /v1/themes lists all {} valid themes.",
                 sampler.catalog.len()
             )),
-        ));
-    }
-    Ok(ids)
+        )
+    })
+}
+
+async fn find_puzzle(sampler: &SharedState, id: String) -> ApiResult<PuzzleRow> {
+    let sampler = Arc::clone(sampler);
+    let lookup_id = id.clone();
+    blocking(move || sampler.by_puzzle_id(&lookup_id))
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("No puzzle with id `{id}`.")))
 }
 
 fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFilter> {
@@ -143,12 +150,8 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
             if tolerance < 0 {
                 return Err(bad_request("`tolerance` cannot be negative.", None));
             }
-            // A band that runs off either end is clamped rather than rejected:
-            // asking for rating 3200 is a reasonable request, not an error.
-            (
-                Some((rating - tolerance).max(RATING_FLOOR)),
-                Some((rating + tolerance).min(RATING_CEILING)),
-            )
+            let (min, max) = band_around(rating, tolerance);
+            (Some(min), Some(max))
         }
         None => (params.rating_min, params.rating_max),
     };
@@ -162,23 +165,11 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
         ));
     }
 
-    let include = match &params.themes {
-        Some(raw) => resolve_themes(sampler, raw, "themes")?,
-        None => Vec::new(),
-    };
-    let exclude = match &params.exclude_themes {
-        Some(raw) => resolve_themes(sampler, raw, "excludeThemes")?,
-        None => Vec::new(),
-    };
+    let include = resolve_themes(sampler, params.themes.as_deref(), "themes")?;
+    let exclude = resolve_themes(sampler, params.exclude_themes.as_deref(), "excludeThemes")?;
 
-    if let Some(conflict) = include.iter().find(|id| exclude.contains(id)) {
-        let name = sampler
-            .catalog
-            .all()
-            .iter()
-            .find(|theme| theme.id == *conflict)
-            .map(|theme| theme.name.as_str())
-            .unwrap_or("that theme");
+    if let Some(&conflict) = include.iter().find(|id| exclude.contains(id)) {
+        let name = sampler.catalog.name_of(conflict).unwrap_or("that theme");
         return Err(bad_request(
             format!("`{name}` is both required and excluded."),
             None,
@@ -187,14 +178,12 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
 
     let mode = match params.themes_mode.as_deref() {
         None => ThemesMode::All,
-        Some(value) if value.eq_ignore_ascii_case("all") => ThemesMode::All,
-        Some(value) if value.eq_ignore_ascii_case("any") => ThemesMode::Any,
-        Some(other) => {
-            return Err(bad_request(
-                format!("`themesMode` must be `all` or `any`; got `{other}`."),
+        Some(value) => ThemesMode::parse(value).ok_or_else(|| {
+            bad_request(
+                format!("`themesMode` must be `all` or `any`; got `{value}`."),
                 None,
-            ));
-        }
+            )
+        })?,
     };
 
     let opening_ids = match &params.opening {
@@ -227,14 +216,8 @@ fn build_filter(sampler: &Sampler, params: &RandomParams) -> ApiResult<PuzzleFil
 fn filter_sample(sampler: &Sampler, params: &RandomParams, filter: &PuzzleFilter) -> FilterSample {
     let names = |ids: &[i64]| -> Vec<String> {
         ids.iter()
-            .filter_map(|id| {
-                sampler
-                    .catalog
-                    .all()
-                    .iter()
-                    .find(|theme| theme.id == *id)
-                    .map(|theme| theme.name.clone())
-            })
+            .filter_map(|&id| sampler.catalog.name_of(id))
+            .map(str::to_string)
             .collect()
     };
 
@@ -297,9 +280,7 @@ fn describe(filter: &PuzzleFilter) -> String {
 pub async fn random(
     State(sampler): State<SharedState>,
     Query(params): Query<RandomParams>,
-) -> ApiResult<axum::response::Response> {
-    use axum::response::IntoResponse;
-
+) -> ApiResult<Response> {
     let batched = params.count.is_some();
     let count = params.count.unwrap_or(1);
     if count == 0 {
@@ -371,12 +352,7 @@ pub async fn by_id(
     Path(id): Path<String>,
     Query(params): Query<PuzzleParams>,
 ) -> ApiResult<Json<PuzzleResponse>> {
-    let row = {
-        let sampler = Arc::clone(&sampler);
-        let id = id.clone();
-        blocking(move || sampler.by_puzzle_id(&id)).await?
-    }
-    .ok_or_else(|| ApiError::NotFound(format!("No puzzle with id `{id}`.")))?;
+    let row = find_puzzle(&sampler, id).await?;
     Ok(Json(PuzzleResponse::new(
         &row,
         &sampler.catalog,
@@ -401,12 +377,7 @@ pub async fn solution(
     State(sampler): State<SharedState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<SolutionResponse>> {
-    let row = {
-        let sampler = Arc::clone(&sampler);
-        let id = id.clone();
-        blocking(move || sampler.by_puzzle_id(&id)).await?
-    }
-    .ok_or_else(|| ApiError::NotFound(format!("No puzzle with id `{id}`.")))?;
+    let row = find_puzzle(&sampler, id).await?;
     Ok(Json(SolutionResponse::new(&row)))
 }
 
@@ -474,10 +445,10 @@ pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsRe
             name: "Lichess puzzle database",
             url: "https://database.lichess.org/#puzzles",
             license: "CC0 1.0",
-            imported_at: meta("imported_at"),
-            source_rows: meta("source_rows_read"),
-            min_popularity: meta("filter_min_popularity"),
-            min_plays: meta("filter_min_plays"),
+            imported_at: meta(meta_keys::IMPORTED_AT),
+            source_rows: meta(meta_keys::ROWS_READ),
+            min_popularity: meta(meta_keys::MIN_POPULARITY),
+            min_plays: meta(meta_keys::MIN_PLAYS),
         },
     }))
 }
@@ -497,38 +468,32 @@ pub async fn health(State(sampler): State<SharedState>) -> Json<HealthResponse> 
 
 /// The generated OpenAPI 3.1 description.
 pub async fn openapi() -> Json<utoipa::openapi::OpenApi> {
-    use utoipa::OpenApi;
-    Json(crate::api::docs::ApiDoc::openapi())
+    Json(ApiDoc::openapi())
 }
 
 /// A rendered reference, for humans.
-pub async fn docs() -> axum::response::Html<&'static str> {
-    axum::response::Html(crate::api::docs::DOCS_HTML)
+pub async fn docs() -> Html<&'static str> {
+    Html(DOCS_HTML)
 }
 
 /// Reconstructs the URL callers reached us on, so the landing page and
 /// llms.txt quote working examples instead of a hard-coded hostname that is
 /// wrong everywhere except one deployment.
-fn base_url(headers: &axum::http::HeaderMap) -> String {
+fn base_url(headers: &HeaderMap) -> String {
     let host = headers
-        .get(axum::http::header::HOST)
+        .get(header::HOST)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("localhost:8080");
+    let is_local = host.starts_with("localhost") || host.starts_with("127.0.0.1");
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or(
-            if host.starts_with("localhost") || host.starts_with("127.0.0.1") {
-                "http"
-            } else {
-                "https"
-            },
-        );
+        .unwrap_or(if is_local { "http" } else { "https" });
     format!("{scheme}://{host}")
 }
 
-fn site_facts(sampler: &Sampler, headers: &axum::http::HeaderMap) -> crate::api::pages::SiteFacts {
-    crate::api::pages::SiteFacts {
+fn site_facts(sampler: &Sampler, headers: &HeaderMap) -> SiteFacts {
+    SiteFacts {
         puzzles: sampler.total_puzzles(),
         themes: sampler.catalog.len(),
         base_url: base_url(headers),
@@ -536,52 +501,19 @@ fn site_facts(sampler: &Sampler, headers: &axum::http::HeaderMap) -> crate::api:
 }
 
 /// What a person sees when they paste the bare domain into a browser.
-pub async fn landing(
-    State(sampler): State<SharedState>,
-    headers: axum::http::HeaderMap,
-) -> axum::response::Html<String> {
-    axum::response::Html(crate::api::pages::landing(&site_facts(&sampler, &headers)))
+pub async fn landing(State(sampler): State<SharedState>, headers: HeaderMap) -> Html<String> {
+    Html(pages::landing(&site_facts(&sampler, &headers)))
 }
 
 /// The llms.txt convention: what this API is, in plain text.
 pub async fn llms_txt(
     State(sampler): State<SharedState>,
-    headers: axum::http::HeaderMap,
-) -> ([(axum::http::HeaderName, &'static str); 1], String) {
+    headers: HeaderMap,
+) -> ([(HeaderName, &'static str); 1], String) {
     (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/markdown; charset=utf-8",
-        )],
-        crate::api::pages::llms_txt(&site_facts(&sampler, &headers)),
+        [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+        pages::llms_txt(&site_facts(&sampler, &headers)),
     )
-}
-
-/// How far back the public report reaches.
-const USAGE_WINDOW_DAYS: i64 = 30;
-
-/// The usage endpoint reads `api.db`, which the key store owns, so it carries
-/// its own state rather than the puzzle sampler.
-pub type UsageState = Arc<crate::auth::keys::KeyStore>;
-
-fn tallies(
-    conn: &rusqlite::Connection,
-    sql: &str,
-    since: &str,
-) -> anyhow::Result<Vec<crate::api::models::Tally>> {
-    use anyhow::Context;
-    let mut statement = conn.prepare(sql).context("preparing tally")?;
-    let rows = statement
-        .query_map((since,), |row| {
-            Ok(crate::api::models::Tally {
-                value: row.get(0)?,
-                requests: row.get(1)?,
-            })
-        })
-        .context("reading tally")?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .context("collecting tally")?;
-    Ok(rows)
 }
 
 #[utoipa::path(
@@ -595,94 +527,6 @@ fn tallies(
     )
 )]
 pub async fn usage(State(store): State<UsageState>) -> ApiResult<Json<UsageResponse>> {
-    let report = blocking(move || {
-        let since = jiff::Timestamp::now()
-            .to_zoned(jiff::tz::TimeZone::UTC)
-            .date()
-            .saturating_sub(jiff::Span::new().days(USAGE_WINDOW_DAYS))
-            .to_string();
-
-        store.read(|conn| {
-            let totals = conn.query_row(
-                "SELECT COALESCE(SUM(count), 0),
-                        COALESCE(SUM(CASE WHEN keyed = 0 THEN count ELSE 0 END), 0),
-                        COALESCE(SUM(CASE WHEN keyed = 1 THEN count ELSE 0 END), 0),
-                        COALESCE(SUM(CASE WHEN status >= 400 THEN count ELSE 0 END), 0)
-                 FROM usage_daily WHERE day >= ?1",
-                (&since,),
-                |row| {
-                    Ok(UsageTotals {
-                        requests: row.get(0)?,
-                        anonymous: row.get(1)?,
-                        keyed: row.get(2)?,
-                        errors: row.get(3)?,
-                    })
-                },
-            )?;
-
-            let mut statement = conn.prepare(
-                "SELECT day, SUM(count), SUM(CASE WHEN status >= 400 THEN count ELSE 0 END)
-                 FROM usage_daily WHERE day >= ?1 GROUP BY day ORDER BY day",
-            )?;
-            let daily = statement
-                .query_map((&since,), |row| {
-                    Ok(DailyTally {
-                        day: row.get(0)?,
-                        requests: row.get(1)?,
-                        errors: row.get(2)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-
-            let by_endpoint = tallies(
-                conn,
-                "SELECT endpoint, SUM(count) FROM usage_daily WHERE day >= ?1
-                 GROUP BY endpoint ORDER BY SUM(count) DESC",
-                &since,
-            )?;
-            let by_status = tallies(
-                conn,
-                "SELECT CAST(status AS TEXT), SUM(count) FROM usage_daily WHERE day >= ?1
-                 GROUP BY status ORDER BY SUM(count) DESC",
-                &since,
-            )?;
-
-            let popular_in = |dimension: &str| -> anyhow::Result<Vec<crate::api::models::Tally>> {
-                let mut statement = conn.prepare(
-                    "SELECT value, SUM(count) FROM filter_usage_daily
-                     WHERE day >= ?1 AND dimension = ?2
-                     GROUP BY value ORDER BY SUM(count) DESC LIMIT 25",
-                )?;
-                let rows = statement
-                    .query_map((&since, dimension), |row| {
-                        Ok(crate::api::models::Tally {
-                            value: row.get(0)?,
-                            requests: row.get(1)?,
-                        })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(rows)
-            };
-
-            Ok(UsageResponse {
-                generated_at: jiff::Timestamp::now().to_string(),
-                since: since.clone(),
-                totals,
-                daily,
-                by_endpoint,
-                by_status,
-                popular: PopularFilters {
-                    themes: popular_in(usage::dimensions::THEME)?,
-                    excluded_themes: popular_in(usage::dimensions::EXCLUDED_THEME)?,
-                    rating_bands: popular_in(usage::dimensions::RATING_BAND)?,
-                    options: popular_in(usage::dimensions::OPTION)?,
-                },
-                note: "Aggregate counts only. Requests are split by whether they carried an \
-                       API key, never by which one, and no client address is stored.",
-            })
-        })
-    })
-    .await?;
-
+    let report = blocking(move || store.read(usage::report)).await?;
     Ok(Json(report))
 }

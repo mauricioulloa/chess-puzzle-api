@@ -15,7 +15,7 @@ use crate::import::parse::{GameRef, ThemeMask};
 use anyhow::{Context, Result};
 use rand::RngExt;
 use rusqlite::types::Value;
-use rusqlite::{Connection, Row, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 
@@ -25,6 +25,16 @@ const MAX_ATTEMPTS: usize = 32;
 
 pub const RATING_FLOOR: i64 = 0;
 pub const RATING_CEILING: i64 = 4000;
+pub const DEFAULT_TOLERANCE: i64 = 100;
+
+/// The band `rating ± tolerance`. A band that runs off either end is clamped
+/// rather than rejected: asking for rating 3200 is a reasonable request.
+pub fn band_around(rating: i64, tolerance: i64) -> (i64, i64) {
+    (
+        (rating - tolerance).max(RATING_FLOOR),
+        (rating + tolerance).min(RATING_CEILING),
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemesMode {
@@ -33,6 +43,18 @@ pub enum ThemesMode {
     All,
     /// The puzzle must carry at least one of them.
     Any,
+}
+
+impl ThemesMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        if value.eq_ignore_ascii_case("all") {
+            Some(Self::All)
+        } else if value.eq_ignore_ascii_case("any") {
+            Some(Self::Any)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -144,6 +166,17 @@ struct ScanKey {
     rating_max: i64,
 }
 
+/// A snapshot of the dataset, for the stats endpoint.
+#[derive(Debug, Clone)]
+pub struct DatasetStats {
+    pub puzzles: i64,
+    pub openings: i64,
+    pub rating_min: i64,
+    pub rating_max: i64,
+    pub bands: Vec<(i64, i64, i64)>,
+    pub meta: HashMap<String, String>,
+}
+
 pub struct Sampler {
     pool: SqlitePool,
     pub catalog: Catalog,
@@ -202,25 +235,15 @@ impl Sampler {
     pub fn by_puzzle_id(&self, puzzle_id: &str) -> Result<Option<PuzzleRow>> {
         let conn = self.connection()?;
         let sql = format!("SELECT {COLUMNS} {SOURCE} WHERE p.puzzle_id = ?1");
-        let row = conn
-            .query_row(&sql, (puzzle_id,), map_row)
-            .map(Some)
-            .or_else(|err| match err {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })
-            .context("looking up puzzle by id")?;
-        Ok(row)
+        conn.query_row(&sql, (puzzle_id,), map_row)
+            .optional()
+            .context("looking up puzzle by id")
     }
 
     fn by_row_id(&self, conn: &Connection, id: i64) -> Result<Option<PuzzleRow>> {
         let sql = format!("SELECT {COLUMNS} {SOURCE} WHERE p.id = ?1");
         conn.query_row(&sql, (id,), map_row)
-            .map(Some)
-            .or_else(|err| match err {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })
+            .optional()
             .context("fetching puzzle by row id")
     }
 
@@ -266,8 +289,8 @@ impl Sampler {
         }
 
         let (rating_min, rating_max) = filter.bounds();
-        let want = self.catalog.mask_for(filter.include.iter().copied());
-        let excl = self.catalog.mask_for(filter.exclude.iter().copied());
+        let want = ThemeMask::from_ids(&filter.include);
+        let excl = ThemeMask::from_ids(&filter.exclude);
 
         // Pick the scan that drives sampling. With ALL semantics the rarest
         // requested theme is the cheapest scan that still contains every
@@ -355,40 +378,31 @@ impl Sampler {
         key: ScanKey,
         offset: i64,
     ) -> Result<Option<PuzzleRow>> {
-        match key.theme {
-            Some(theme_id) => {
-                let id: Option<i64> = conn
-                    .query_row(
-                        "SELECT puzzle_id FROM puzzle_themes
-                         WHERE theme_id = ?1 AND rating BETWEEN ?2 AND ?3
-                         LIMIT 1 OFFSET ?4",
-                        (theme_id, key.rating_min, key.rating_max, offset),
-                        |row| row.get(0),
-                    )
-                    .ok();
-                match id {
-                    Some(id) => self.by_row_id(conn, id),
-                    None => Ok(None),
-                }
-            }
-            None => {
-                // Offset over the covering index alone. Selecting the full row
-                // here instead would make SQLite materialise and discard every
-                // skipped row, join included: measured at 136 ms against 3 ms.
-                let id: Option<i64> = conn
-                    .query_row(
-                        "SELECT id FROM puzzles
-                         WHERE rating BETWEEN ?1 AND ?2
-                         ORDER BY rating, id LIMIT 1 OFFSET ?3",
-                        (key.rating_min, key.rating_max, offset),
-                        |row| row.get(0),
-                    )
-                    .ok();
-                match id {
-                    Some(id) => self.by_row_id(conn, id),
-                    None => Ok(None),
-                }
-            }
+        let id: Option<i64> = match key.theme {
+            Some(theme_id) => conn.query_row(
+                "SELECT puzzle_id FROM puzzle_themes
+                 WHERE theme_id = ?1 AND rating BETWEEN ?2 AND ?3
+                 LIMIT 1 OFFSET ?4",
+                (theme_id, key.rating_min, key.rating_max, offset),
+                |row| row.get(0),
+            ),
+            // Offset over the covering index alone. Selecting the full row
+            // here instead would make SQLite materialise and discard every
+            // skipped row, join included: measured at 136 ms against 3 ms.
+            None => conn.query_row(
+                "SELECT id FROM puzzles
+                 WHERE rating BETWEEN ?1 AND ?2
+                 ORDER BY rating, id LIMIT 1 OFFSET ?3",
+                (key.rating_min, key.rating_max, offset),
+                |row| row.get(0),
+            ),
+        }
+        .optional()
+        .context("picking a candidate")?;
+
+        match id {
+            Some(id) => self.by_row_id(conn, id),
+            None => Ok(None),
         }
     }
 
@@ -500,27 +514,10 @@ impl Sampler {
             params_from_iter(pick_params.iter()),
             map_row,
         )
-        .map(Some)
-        .or_else(|err| match err {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })
+        .optional()
         .context("exact pick")
     }
-}
 
-/// A snapshot of the dataset, for the stats endpoint.
-#[derive(Debug, Clone)]
-pub struct DatasetStats {
-    pub puzzles: i64,
-    pub openings: i64,
-    pub rating_min: i64,
-    pub rating_max: i64,
-    pub bands: Vec<(i64, i64, i64)>,
-    pub meta: HashMap<String, String>,
-}
-
-impl Sampler {
     /// Resolves an opening name to the interned rows that mention it.
     ///
     /// `opening_tags` holds several space-separated tags per puzzle, so an

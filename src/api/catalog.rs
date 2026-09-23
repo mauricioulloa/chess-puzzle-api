@@ -64,6 +64,33 @@ impl Catalog {
         self.by_name.get(&name.to_ascii_lowercase())
     }
 
+    /// Maps names to theme ids, or returns every name that is not a theme.
+    pub fn resolve<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Vec<i64>, Vec<&'a str>> {
+        let mut ids = Vec::new();
+        let mut unknown = Vec::new();
+        for name in names {
+            match self.get(name) {
+                Some(theme) => ids.push(theme.id),
+                None => unknown.push(name),
+            }
+        }
+        if unknown.is_empty() {
+            Ok(ids)
+        } else {
+            Err(unknown)
+        }
+    }
+
+    pub fn name_of(&self, id: i64) -> Option<&str> {
+        self.ordered
+            .iter()
+            .find(|theme| theme.id == id)
+            .map(|theme| theme.name.as_str())
+    }
+
     pub fn all(&self) -> &[Theme] {
         &self.ordered
     }
@@ -83,13 +110,5 @@ impl Catalog {
             .filter(|theme| mask.contains(theme.id))
             .map(|theme| theme.name.as_str())
             .collect()
-    }
-
-    pub fn mask_for(&self, ids: impl IntoIterator<Item = i64>) -> ThemeMask {
-        let mut mask = ThemeMask::default();
-        for id in ids {
-            mask.set(id);
-        }
-        mask
     }
 }

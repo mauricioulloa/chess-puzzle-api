@@ -71,6 +71,5 @@ pub const DOCS_HTML: &str = r#"<!doctype html>
 
 /// The spec as pretty-printed JSON, exactly as `openapi.json` holds it.
 pub fn spec_json() -> anyhow::Result<String> {
-    use utoipa::OpenApi;
     Ok(serde_json::to_string_pretty(&ApiDoc::openapi())?)
 }
