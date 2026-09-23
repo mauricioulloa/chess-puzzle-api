@@ -1,14 +1,9 @@
 # Production deployment for chess.mauriulloa.com
 #
-# The puzzle database is a 633 MB file on a persistent volume rather than part
-# of the image: deploys then move a 12 MB binary instead of rebuilding and
-# pushing the whole dataset, and the data survives every release.
+# The puzzle database lives on a persistent volume rather than in the image,
+# so a deploy ships only the binary and the data survives every release.
 
 app = "chess-puzzle-api"
-# Virginia, not Sao Paulo. gru costs 61% more for the same hardware
-# ($9.20 vs $5.70 a month at 1 GB) and the audience is not Chile: it is
-# agents and developers spread across the world, most of them closer to iad.
-# The trade is ~130 ms slower from Santiago, measured.
 primary_region = "iad"
 
 [build]
@@ -22,9 +17,7 @@ primary_region = "iad"
   # world would look like it came from the proxy and share one rate limit.
   TRUST_PROXY_HEADERS = "true"
   RUST_LOG = "chess_puzzle_api=info"
-  # The MCP transport refuses Host headers it does not recognise, as
-  # DNS-rebinding protection, and only knows the loopback names by default.
-  # Without this the /mcp endpoint returns 403 to every caller.
+  # Without this /mcp refuses every caller as a DNS-rebinding attempt.
   MCP_ALLOWED_HOSTS = "chess.mauriulloa.com,chess-puzzle-api.fly.dev"
 
 [[mounts]]
@@ -35,8 +28,7 @@ primary_region = "iad"
   internal_port = 8080
   force_https = true
   auto_start_machines = true
-  # Never stop: SQLite reads through the page cache, and a machine that has
-  # just started has a cold one. Staying up is what keeps queries sub-millisecond.
+  # Never stop: a freshly started machine has a cold page cache.
   auto_stop_machines = false
   min_machines_running = 1
 
@@ -54,11 +46,7 @@ primary_region = "iad"
 
 [[vm]]
   size = "shared-cpu-1x"
-  # 512 MB. The 1 GB here was paying for SQLite's per-connection page caches
-  # (8 pooled connections at 32 MB each), not for the OS page cache, which is
-  # evictable and simply uses whatever is free. With those caches cut to 2 MB
-  # the working set fits, and measured end-to-end latency is unchanged: a
-  # request is ~87 ms of network round trip and well under a millisecond of
-  # query, so page-cache misses are invisible next to the wire.
+  # Enough because SQLite's per-connection caches are kept small and the OS
+  # page cache does the caching (see src/db/pool.rs).
   memory = "512mb"
   cpus = 1

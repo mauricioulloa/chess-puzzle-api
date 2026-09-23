@@ -24,7 +24,7 @@ FROM gcr.io/distroless/cc-debian12
 
 COPY --from=builder /build/target/release/chess-puzzle-api /usr/local/bin/chess-puzzle-api
 
-# The puzzle database is immutable; mount it read-only at runtime.
+# Holds the read-only puzzle database and the read-write api.db.
 VOLUME ["/data"]
 ENV PUZZLES_DB=/data/puzzles.db \
     API_DB=/data/api.db \
