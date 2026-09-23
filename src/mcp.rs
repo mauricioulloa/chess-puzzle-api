@@ -23,8 +23,10 @@ const MAX_COUNT: usize = 20;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RandomArgs {
-    /// Target Elo rating. Puzzles are returned within `tolerance` of it.
-    /// Roughly: 800 is a beginner, 1500 a club player, 2200+ is expert.
+    /// Target Lichess puzzle rating. Puzzles are returned within `tolerance`
+    /// of it. The named levels used across these services: beginner under
+    /// 1000, novice 1000–1399, intermediate 1400–1799, advanced 1800–2199,
+    /// expert 2200+.
     pub rating: Option<i64>,
     /// How far either side of `rating` to search. Defaults to 100.
     pub tolerance: Option<i64>,

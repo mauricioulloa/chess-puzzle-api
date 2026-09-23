@@ -151,13 +151,15 @@
   <div class="controls">
     <div class="field">
       <label for="level">Level</label>
+      <!-- Named bands of Lichess puzzle rating, contiguous so every rating
+           has exactly one level. puzzle-sheets uses the same five. -->
       <select id="level">
         <option value="">Any</option>
-        <option value="600,1100">Beginner &middot; 600–1100</option>
-        <option value="1100,1500">Easy &middot; 1100–1500</option>
-        <option value="1500,1900" selected>Intermediate &middot; 1500–1900</option>
-        <option value="1900,2300">Hard &middot; 1900–2300</option>
-        <option value="2300,3000">Expert &middot; 2300+</option>
+        <option value="0,999">Beginner &middot; under 1000</option>
+        <option value="1000,1399">Novice &middot; 1000–1399</option>
+        <option value="1400,1799" selected>Intermediate &middot; 1400–1799</option>
+        <option value="1800,2199">Advanced &middot; 1800–2199</option>
+        <option value="2200,4000">Expert &middot; 2200+</option>
       </select>
     </div>
     <div class="field">
