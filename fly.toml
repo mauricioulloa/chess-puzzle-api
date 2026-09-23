@@ -7,7 +7,7 @@ app = "chess-puzzle-api"
 primary_region = "iad"
 
 [env]
-  PUZZLES_DB = "/data/puzzles-v3.db"
+  PUZZLES_DB = "/data/puzzles-v4.db"
   API_DB = "/data/api.db"
   BIND_ADDR = "0.0.0.0:8080"
   ANONYMOUS_LIMIT = "30"

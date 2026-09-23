@@ -343,25 +343,32 @@ impl Sampler {
             sized
         };
 
+        // An empty theme scan settles it: nothing can match. Falling through
+        // to the rating-only scan instead would reject every draw and end in
+        // the exact path's full scan, only to find nothing seconds later.
+        let nothing_matches = match filter.mode {
+            ThemesMode::All => drivers.iter().any(|(_, count)| *count == 0),
+            ThemesMode::Any => drivers.iter().all(|(_, count)| *count == 0),
+        };
+        if !drivers.is_empty() && nothing_matches {
+            return Ok(None);
+        }
+
         let driver: Option<(i64, i64)> = match filter.mode {
             _ if drivers.is_empty() => None,
             ThemesMode::All => drivers.iter().copied().min_by_key(|(_, count)| *count),
             ThemesMode::Any => {
                 let total: i64 = drivers.iter().map(|(_, count)| count).sum();
-                if total == 0 {
-                    None
-                } else {
-                    let mut target = rand::rng().random_range(0..total);
-                    let mut chosen = drivers[0];
-                    for candidate in &drivers {
-                        if target < candidate.1 {
-                            chosen = *candidate;
-                            break;
-                        }
-                        target -= candidate.1;
+                let mut target = rand::rng().random_range(0..total);
+                let mut chosen = drivers[0];
+                for candidate in &drivers {
+                    if target < candidate.1 {
+                        chosen = *candidate;
+                        break;
                     }
-                    Some(chosen)
+                    target -= candidate.1;
                 }
+                Some(chosen)
             }
         };
 

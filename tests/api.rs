@@ -486,3 +486,20 @@ async fn puzzles_report_their_piece_count_and_can_be_filtered_by_it() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "no_match");
 }
+
+#[test]
+fn a_theme_with_no_candidates_matches_nothing() {
+    let (_dir, sampler) = fixture_sampler();
+    let fork = sampler.catalog.get("fork").expect("fork").id;
+
+    // No position has two pieces and a fork, in either mode.
+    for mode in [ThemesMode::All, ThemesMode::Any] {
+        let filter = PuzzleFilter {
+            include: vec![fork],
+            mode,
+            max_pieces: Some(2),
+            ..Default::default()
+        };
+        assert!(sampler.random(&filter, 3).expect("sample").is_empty());
+    }
+}
