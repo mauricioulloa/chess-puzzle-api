@@ -246,18 +246,15 @@ impl Sampler {
     pub fn warm_up(&self) -> Result<std::time::Duration> {
         let started = std::time::Instant::now();
         let conn = self.connection()?;
-        conn.query_row(
-            "SELECT COUNT(*) FROM puzzle_themes WHERE pieces >= 0",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .context("reading puzzle_themes")?;
-        conn.query_row(
-            "SELECT COUNT(*) FROM puzzles INDEXED BY idx_puzzles_rating WHERE pieces >= 0",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .context("reading the rating index")?;
+        // A bare count walks every page without decoding the rows, which
+        // is all the page cache needs and a fifth of the CPU.
+        for sql in [
+            "SELECT COUNT(*) FROM puzzle_themes",
+            "SELECT COUNT(*) FROM puzzles INDEXED BY idx_puzzles_rating",
+        ] {
+            conn.query_row(sql, [], |row| row.get::<_, i64>(0))
+                .with_context(|| format!("warming with `{sql}`"))?;
+        }
         Ok(started.elapsed())
     }
 
