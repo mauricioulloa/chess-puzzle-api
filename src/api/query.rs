@@ -239,6 +239,28 @@ impl Sampler {
         }
     }
 
+    /// Reads both sampling indexes once, so the first requests after a
+    /// restart find them in the page cache instead of on disk. They are a
+    /// fraction of the file and fit in memory; the rows they point at are
+    /// fetched a dozen at a time and do not need warming.
+    pub fn warm_up(&self) -> Result<std::time::Duration> {
+        let started = std::time::Instant::now();
+        let conn = self.connection()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM puzzle_themes WHERE pieces >= 0",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("reading puzzle_themes")?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM puzzles INDEXED BY idx_puzzles_rating WHERE pieces >= 0",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("reading the rating index")?;
+        Ok(started.elapsed())
+    }
+
     pub fn total_puzzles(&self) -> i64 {
         self.catalog.puzzle_count
     }

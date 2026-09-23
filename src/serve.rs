@@ -100,6 +100,13 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     tokio::spawn(maintenance(Arc::clone(&auth)));
 
     let sampler = Arc::new(Sampler::new(pool, catalog));
+    tokio::task::spawn_blocking({
+        let sampler = Arc::clone(&sampler);
+        move || match sampler.warm_up() {
+            Ok(elapsed) => tracing::info!("index pages cached in {:.1}s", elapsed.as_secs_f64()),
+            Err(err) => tracing::warn!("could not warm the page cache: {err:#}"),
+        }
+    });
     let app = routes::router(sampler, Arc::clone(&auth), &args.mcp_allowed_hosts);
 
     let listener = TcpListener::bind(&args.bind)
