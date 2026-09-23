@@ -95,9 +95,8 @@ there is evidence people are using the trainer.
 
 `/data/puzzles.db` stayed on the volume when the service moved to
 `puzzles-v3.db`. Nothing reads it, but the image has no shell, so removing it
-means mounting the volume on a temporary machine, which takes the service
-down for a couple of minutes. Worth folding into the next re-import, which
-needs the same step anyway.
+means stopping the machine and mounting the volume on a temporary one: a
+couple of minutes of downtime to reclaim space nothing is short of.
 
 ---
 
