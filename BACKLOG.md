@@ -70,16 +70,6 @@ equivalent.
 
 ---
 
-## Printable sheets for educators
-
-Moved to its own project,
-[puzzle-sheets](https://github.com/mauricioulloa/puzzle-sheets), which calls
-this API. What it needed from here is done: `maxPieces`, because a low rating
-does not mean a simple position — mate-in-ones under 1000 have a median of
-nineteen pieces on the board.
-
----
-
 ## Product debt
 
 ### 8. Theme descriptions on `/v1/themes`
@@ -101,6 +91,14 @@ of only revealing the answer. Deliberately deferred: it needs legal-move
 generation in the browser and handling the opponent's replies. Worth doing once
 there is evidence people are using the trainer.
 
+### 11. Delete the retired schema-2 database
+
+`/data/puzzles.db` stayed on the volume when the service moved to
+`puzzles-v3.db`. Nothing reads it, but the image has no shell, so removing it
+means mounting the volume on a temporary machine, which takes the service
+down for a couple of minutes. Worth folding into the next re-import, which
+needs the same step anyway.
+
 ---
 
 ## Not doing, and why
@@ -108,5 +106,8 @@ there is evidence people are using the trainer.
 - **A page per puzzle for search.** Three million thin pages reads as spam.
 - **Chess.com's piece artwork.** Proprietary. The Cburnett set is free, looks
   professional, and is already in place with its attribution.
-- **Server-side PDF generation.** The browser prints to PDF perfectly well.
-- **Accounts, saved worksheets, progress tracking.** A different product.
+- **Printable puzzle sheets.** That is
+  [puzzle-sheets](https://github.com/mauricioulloa/puzzle-sheets), which is
+  built on this API. This repository serves puzzles; what it adds for sheets is
+  filters, like `maxPieces`, never layouts.
+- **Accounts, saved puzzles, progress tracking.** A different product.
