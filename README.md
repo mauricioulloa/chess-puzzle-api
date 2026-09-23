@@ -51,6 +51,12 @@ An unknown theme is a `400`, not an empty result — call `/v1/themes` rather
 than guessing. Unknown parameters are rejected too, so a typo surfaces
 immediately instead of silently widening the search.
 
+Ratings are Lichess's own puzzle ratings. Where a name helps — the trainer on
+the landing page, the MCP guidance, and
+[puzzle-sheets](https://puzzles.mauriulloa.com) — five contiguous bands are
+used, so a rating belongs to exactly one: beginner under 1000, novice
+1000–1399, intermediate 1400–1799, advanced 1800–2199, expert 2200+.
+
 ```json
 {
   "id": "00008",
@@ -116,26 +122,48 @@ unusually small: one read-only SQLite file, one static binary, no database
 server and no cache layer.
 
 Uniform random selection over a filtered subset is the only hard part.
-Counting a *filtered* set means fetching every candidate from a 600 MB table
-to test it — half a second. So nothing does: the rarest requested theme drives
-a range scan over a covering index, a row is picked at a random offset, and a
-128-bit theme mask on the row accepts or rejects it. A rejection just retries.
-Filtered requests land in about 3 ms of server time.
+Counting a *filtered* set means fetching every candidate from the puzzles
+table to test it — seconds, once the file is larger than memory. So nothing
+does: the rarest requested theme drives a range scan over a covering index
+that also carries the rating and the piece count, a row is picked at a random
+offset, and a 128-bit theme mask on the row checks whatever the scan could not
+(a second required theme, an excluded one). A rejection just retries. Filtered
+requests land in a few milliseconds of server time, and the server reads its
+indexes into the page cache when it starts so the first requests do too.
 
-Curation keeps puzzles with `Popularity >= 90` and `NbPlays >= 100`, which
-drops about half the dump. Not stricter: popularity correlates inversely with
-difficulty, so a higher floor would gut the rare themes and high ratings where
-variety matters most.
+## What changes from the Lichess dump
+
+No value is altered: FEN, moves, rating, rating deviation, popularity, play
+count, themes, opening tags and puzzle ids are exactly Lichess's. The import
+does three things to the dump.
+
+- **Curation.** It keeps puzzles with `Popularity >= 90` and `NbPlays >= 100`:
+  3.1 of 6.1 million rows. Not stricter, because popularity falls as
+  difficulty rises, and a higher floor would gut the rare themes and high
+  ratings. Rows that are malformed or whose first move is illegal are dropped
+  too; the current dump has none.
+- **Storage.** The game URL is kept as its parts and rebuilt on the way out;
+  themes become ids, a bit mask and an index table; opening tags are stored
+  once and referenced; each puzzle gets a dense internal id for fast random
+  picks.
+- **Derived data.** `pieces`, the number of pieces on the board the player
+  solves, counted by replaying the opponent's move; puzzle counts per theme;
+  and a `meta` table recording the source, the filters and the schema
+  version.
+
+Everything else the API shows — `positionFen`, SAN, the drawn board, the
+analysis link — is computed per response and never stored.
 
 ## Self-hosting
 
 ```bash
-cargo run --release -- import   # builds data/puzzles.db from the dump, ~30s
+cargo run --release -- import   # builds data/puzzles.db from the dump, ~40s
 cargo run --release -- serve
 ```
 
 `import` takes `--min-popularity`, `--min-plays` and `--limit` if you want a
-different slice. `serve` reads `PUZZLES_DB`, `API_DB`, `BIND_ADDR`,
+different slice, and `--force` to rebuild over an existing file; a schema
+change means rebuilding. `serve` reads `PUZZLES_DB`, `API_DB`, `BIND_ADDR`,
 `ANONYMOUS_LIMIT`, `TRUST_PROXY_HEADERS` and `MCP_ALLOWED_HOSTS` — set the
 last one to your domain or `/mcp` refuses every caller as a rebinding attempt.
 

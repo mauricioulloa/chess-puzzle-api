@@ -38,8 +38,7 @@ pub struct RandomArgs {
     pub themes_mode: Option<String>,
     /// Themes the puzzle must not carry.
     pub exclude_themes: Option<Vec<String>>,
-    /// At most this many pieces on the board, kings included. Use 8 to 14
-    /// for young beginners: a low rating alone can still be a crowded board.
+    /// At most this many pieces on the board, kings included.
     pub max_pieces: Option<u32>,
     /// How many puzzles to return, up to 20. Defaults to 1.
     pub count: Option<usize>,

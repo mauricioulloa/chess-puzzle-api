@@ -467,9 +467,6 @@ impl Sampler {
         if row.mask.lo & excl.lo != 0 || row.mask.hi & excl.hi != 0 {
             return false;
         }
-        if filter.max_pieces.is_some_and(|max| row.pieces > max) {
-            return false;
-        }
         if !filter.opening_ids.is_empty()
             && !row
                 .opening_id

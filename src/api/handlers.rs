@@ -44,8 +44,7 @@ pub struct RandomParams {
     exclude_themes: Option<String>,
     opening: Option<String>,
     /// Only positions with at most this many pieces on the board, kings
-    /// included. Low rating does not mean a simple position: this is what
-    /// selects sparse, diagram-like puzzles for beginners.
+    /// included.
     max_pieces: Option<u32>,
     count: Option<usize>,
     /// Include the position drawn as text. Off by default because it is by

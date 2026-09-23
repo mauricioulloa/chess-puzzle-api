@@ -91,12 +91,13 @@ of only revealing the answer. Deliberately deferred: it needs legal-move
 generation in the browser and handling the opponent's replies. Worth doing once
 there is evidence people are using the trainer.
 
-### 11. Delete the retired schema-2 database
+### 11. Delete the retired databases
 
-`/data/puzzles.db` stayed on the volume when the service moved to
-`puzzles-v3.db`. Nothing reads it, but the image has no shell, so removing it
-means stopping the machine and mounting the volume on a temporary one: a
-couple of minutes of downtime to reclaim space nothing is short of.
+`/data/puzzles.db` (schema 2) and `/data/puzzles-v3.db` stayed on the volume
+when the service moved to `puzzles-v4.db`. Nothing reads them, but the image
+has no shell, so removing them means stopping the machine and mounting the
+volume on a temporary one: a couple of minutes of downtime to reclaim space
+nothing is short of.
 
 ---
 
@@ -107,6 +108,6 @@ couple of minutes of downtime to reclaim space nothing is short of.
   professional, and is already in place with its attribution.
 - **Printable puzzle sheets.** That is
   [puzzle-sheets](https://github.com/mauricioulloa/puzzle-sheets), which is
-  built on this API. This repository serves puzzles; what it adds for sheets is
-  filters, like `maxPieces`, never layouts.
+  built on this API. This repository serves puzzles and the filters to find
+  them, like `maxPieces`; never layouts.
 - **Accounts, saved puzzles, progress tracking.** A different product.

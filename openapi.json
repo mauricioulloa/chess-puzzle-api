@@ -112,7 +112,7 @@
           {
             "name": "maxPieces",
             "in": "query",
-            "description": "Only positions with at most this many pieces on the board, kings\nincluded. Low rating does not mean a simple position: this is what\nselects sparse, diagram-like puzzles for beginners.",
+            "description": "Only positions with at most this many pieces on the board, kings\nincluded.",
             "required": false,
             "schema": {
               "type": "integer",
