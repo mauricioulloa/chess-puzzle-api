@@ -6,8 +6,6 @@
 app = "chess-puzzle-api"
 primary_region = "iad"
 
-[build]
-
 [env]
   PUZZLES_DB = "/data/puzzles-v3.db"
   API_DB = "/data/api.db"

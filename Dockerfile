@@ -15,8 +15,7 @@ RUN mkdir src && \
 COPY src ./src
 # Touch so cargo does not reuse the dummy build artifacts.
 RUN touch src/main.rs src/lib.rs && \
-    cargo build --release --locked && \
-    strip target/release/chess-puzzle-api
+    cargo build --release --locked
 
 # Runtime stage. distroless/cc carries glibc and libgcc and nothing else:
 # no shell, no package manager, minimal attack surface.

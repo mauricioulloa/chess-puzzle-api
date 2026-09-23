@@ -224,3 +224,30 @@ fn loosening_the_filters_keeps_more_rows() {
     assert_eq!(stats.rejected_plays, 0);
     assert_eq!(stats.rejected_malformed, 2);
 }
+
+#[tokio::test]
+async fn a_missing_input_does_not_cost_the_existing_database() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let output = dir.path().join("puzzles.db");
+    std::fs::write(&output, b"the database already being served").expect("seed file");
+
+    let result = chess_puzzle_api::import::run(chess_puzzle_api::import::ImportArgs {
+        output: output.clone(),
+        input: Some(dir.path().join("missing.csv")),
+        cache: dir.path().join("cache.csv.zst"),
+        source_url: String::new(),
+        min_popularity: 90,
+        min_plays: 100,
+        limit: None,
+        force: true,
+        no_vacuum: true,
+        refresh: false,
+    })
+    .await;
+
+    assert!(result.is_err());
+    assert!(
+        output.exists(),
+        "--force replaces the database, never just deletes it"
+    );
+}

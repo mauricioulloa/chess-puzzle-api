@@ -69,6 +69,7 @@ player without leaking what they are meant to find.
 - [{base_url}/openapi.json]({base_url}/openapi.json): the full OpenAPI 3.1 schema.
 - [{base_url}/docs]({base_url}/docs): the same reference, rendered for people.
 - [{base_url}/mcp]({base_url}/mcp): Model Context Protocol endpoint, for calling this API as agent tools.
+- [https://puzzles.mauriulloa.com/llms.txt](https://puzzles.mauriulloa.com/llms.txt): puzzle-sheets, printable worksheets built on this API, for teachers and students.
 
 ## Limits
 

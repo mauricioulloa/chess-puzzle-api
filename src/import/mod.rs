@@ -56,15 +56,11 @@ pub struct ImportArgs {
 }
 
 pub async fn run(args: ImportArgs) -> Result<()> {
-    if args.output.exists() {
-        if !args.force {
-            bail!(
-                "{} already exists; pass --force to rebuild it from scratch",
-                args.output.display()
-            );
-        }
-        std::fs::remove_file(&args.output)
-            .with_context(|| format!("removing {}", args.output.display()))?;
+    if args.output.exists() && !args.force {
+        bail!(
+            "{} already exists; pass --force to rebuild it from scratch",
+            args.output.display()
+        );
     }
 
     let source = match &args.input {
@@ -83,6 +79,13 @@ pub async fn run(args: ImportArgs) -> Result<()> {
             args.cache.clone()
         }
     };
+
+    // Only once the source is in hand: a missing input or a failed download
+    // must not cost the database that is already there.
+    if args.output.exists() {
+        std::fs::remove_file(&args.output)
+            .with_context(|| format!("removing {}", args.output.display()))?;
+    }
 
     let filters = Filters {
         min_popularity: args.min_popularity,

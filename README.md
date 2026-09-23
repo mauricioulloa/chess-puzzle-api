@@ -91,6 +91,10 @@ front of someone without leaking what they are meant to find.
 than assembling HTTP requests. Point any MCP client at
 `https://chess.mauriulloa.com/mcp`.
 
+For printable worksheets rather than one puzzle at a time,
+[puzzle-sheets](https://puzzles.mauriulloa.com) is built on this API and has
+its own MCP server.
+
 Without an MCP client, [`/llms.txt`](https://chess.mauriulloa.com/llms.txt)
 describes the API in plain text, and `?board=true` draws the position so a
 model need not decode a FEN.
@@ -166,6 +170,10 @@ Puzzle data from the [Lichess open database](https://database.lichess.org/),
 public domain under CC0. Lichess is free and ad-free —
 [consider supporting them](https://lichess.org/patron). This project is not
 affiliated with or endorsed by Lichess.
+
+Chess pieces by
+[Colin M.L. Burnett](https://en.wikipedia.org/wiki/User:Cburnett),
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
 
 ## License
 
