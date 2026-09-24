@@ -295,7 +295,7 @@ fn describe(filter: &PuzzleFilter) -> String {
         (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
         (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
-        (status = 503, description = "The search ran past the query timeout and was stopped", body = ErrorBody),
+        (status = 503, description = "An exhaustive search ran past its time limit and was stopped", body = ErrorBody),
     )
 )]
 pub async fn random(

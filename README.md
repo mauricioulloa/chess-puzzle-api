@@ -128,9 +128,10 @@ does: the rarest requested theme drives a range scan over a covering index
 that also carries the rating and the piece count, a row is picked at a random
 offset, and a 128-bit theme mask on the row checks whatever the scan could not
 (a second required theme, an excluded one). A rejection just retries. Filtered
-requests land in a few milliseconds of server time. No query may run longer
-than five seconds: past that it is stopped and the caller gets a `503` with a
-hint, so one expensive search cannot hold a connection hostage.
+requests land in a few milliseconds of server time. The exact fallback, the one
+search that can read the whole puzzles table, is stopped after five seconds
+and the caller gets a `503` with a hint, so it cannot hold a connection
+hostage.
 
 ## What changes from the Lichess dump
 

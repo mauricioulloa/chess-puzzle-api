@@ -191,7 +191,7 @@
             }
           },
           "503": {
-            "description": "The search ran past the query timeout and was stopped",
+            "description": "An exhaustive search ran past its time limit and was stopped",
             "content": {
               "application/json": {
                 "schema": {

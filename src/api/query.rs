@@ -20,27 +20,34 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-/// The longest a request may spend in SQLite. The blocking work does not stop
-/// when a client gives up, so without a bound one expensive query holds a
-/// pooled connection, and the requests queued behind it, until it finishes.
+/// The longest the exact path may run. It is the one search that can read
+/// the whole puzzles table, and the blocking work does not stop when a
+/// client gives up, so without a bound it holds a pooled connection, and the
+/// requests queued behind it, until it finishes.
+///
+/// Index scans are left alone: they are bounded by the largest theme, and
+/// the first one over a band after a restart reads it from disk, which on a
+/// shared CPU can take longer than this and would otherwise fail requests
+/// that the very next attempt answers from the cache.
 pub const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How many SQLite virtual-machine steps pass between deadline checks.
 const PROGRESS_STEPS: i32 = 10_000;
 
-/// A pooled connection with the query timeout armed; disarmed on return to
-/// the pool so the next borrower starts with its own deadline.
-struct TimedConnection(PooledConnection);
+/// Interrupts queries on a connection once `limit` has passed, for as long as
+/// it lives, so the pooled connection goes back without a deadline.
+struct Deadline<'c>(&'c Connection);
 
-impl std::ops::Deref for TimedConnection {
-    type Target = Connection;
-
-    fn deref(&self) -> &Connection {
-        &self.0
+impl<'c> Deadline<'c> {
+    fn arm(conn: &'c Connection, limit: Duration) -> Result<Self> {
+        let deadline = Instant::now() + limit;
+        conn.progress_handler(PROGRESS_STEPS, Some(move || Instant::now() > deadline))
+            .context("arming the query timeout")?;
+        Ok(Self(conn))
     }
 }
 
-impl Drop for TimedConnection {
+impl Drop for Deadline<'_> {
     fn drop(&mut self) {
         let _ = self.0.progress_handler(0, None::<fn() -> bool>);
     }
@@ -283,17 +290,7 @@ impl Sampler {
         self.catalog.puzzle_count
     }
 
-    /// A pooled connection that interrupts any query running past
-    /// [`QUERY_TIMEOUT`].
-    fn connection(&self) -> Result<TimedConnection> {
-        let conn = self.untimed_connection()?;
-        let deadline = Instant::now() + QUERY_TIMEOUT;
-        conn.progress_handler(PROGRESS_STEPS, Some(move || Instant::now() > deadline))
-            .context("arming the query timeout")?;
-        Ok(TimedConnection(conn))
-    }
-
-    fn untimed_connection(&self) -> Result<PooledConnection> {
+    fn connection(&self) -> Result<PooledConnection> {
         self.pool.get().context("acquiring a database connection")
     }
 
@@ -533,6 +530,7 @@ impl Sampler {
         want: ThemeMask,
         excl: ThemeMask,
     ) -> Result<Option<PuzzleRow>> {
+        let _deadline = Deadline::arm(conn, QUERY_TIMEOUT)?;
         let (mut where_sql, mut params) = (Vec::new(), Vec::new());
 
         let source = match key.theme {
@@ -631,11 +629,8 @@ impl Sampler {
         Ok(self.stats.get_or_init(|| computed).clone())
     }
 
-    /// Runs once per process and scans the whole table, so it is exempt
-    /// from the query timeout: on a slow machine it can outlast it, and the
-    /// answer is cached for good once it lands.
     fn compute_stats(&self) -> Result<DatasetStats> {
-        let conn = self.untimed_connection()?;
+        let conn = self.connection()?;
 
         let openings: i64 = conn
             .query_row("SELECT COUNT(*) FROM openings", [], |row| row.get(0))
@@ -689,6 +684,21 @@ impl Sampler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const LONG_QUERY: &str =
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200000)
+                              SELECT COUNT(*) FROM n";
+
+    #[test]
+    fn a_deadline_stops_queries_only_while_it_lives() {
+        let conn = Connection::open_in_memory().expect("connection");
+        let count = |conn: &Connection| conn.query_row(LONG_QUERY, [], |row| row.get::<_, i64>(0));
+
+        let expired = Deadline::arm(&conn, Duration::ZERO).expect("armed");
+        assert!(count(&conn).is_err(), "an expired deadline interrupts");
+        drop(expired);
+        assert_eq!(count(&conn).expect("no deadline left behind"), 200_000);
+    }
 
     #[test]
     fn an_interrupted_query_is_recognised_as_a_timeout() {
