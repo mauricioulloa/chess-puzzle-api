@@ -9,7 +9,11 @@ service uses, so agreement between them means something.
     python scripts/verify_production.py <api-key>
 
 BASE_URL overrides the target. The key needs a high rate limit: the suite
-makes several hundred requests, well past the anonymous allowance.
+makes several hundred requests, well past the anonymous allowance. Mint one
+for the run and revoke it afterwards:
+
+    fly ssh console -C "/usr/local/bin/chess-puzzle-api keys create --label verification --rate-limit 3000"
+    fly ssh console -C "/usr/local/bin/chess-puzzle-api keys revoke --label verification"
 """
 import json, os, sys, urllib.request
 import chess
@@ -47,7 +51,7 @@ def rpc(method, params):
 
 print("\n=== 1. chess correctness, re-derived with python-chess ===")
 SAMPLE = 120
-bad_position, bad_san, bad_legal, bad_colour = [], [], [], []
+bad_position, bad_san, bad_legal, bad_colour, bad_pieces = [], [], [], [], []
 ratings_seen = []
 for i in range(SAMPLE):
     _, p, _ = get("/v1/puzzles/random")
@@ -66,11 +70,14 @@ for i in range(SAMPLE):
     expected_colour = "white" if board.turn == chess.WHITE else "black"
     if expected_colour != p["solverColor"]:
         bad_colour.append(p["id"])
+    if len(board.piece_map()) != p["pieces"]:
+        bad_pieces.append((p["id"], len(board.piece_map()), p["pieces"]))
 
 check(f"initialMove is legal in fen ({SAMPLE} puzzles)", not bad_legal, str(bad_legal[:3]))
 check("initialMoveSan matches an independent engine", not bad_san, str(bad_san[:2]))
 check("positionFen == fen with initialMove applied", not bad_position, str(bad_position[:1]))
 check("solverColor is the side to move in positionFen", not bad_colour, str(bad_colour[:3]))
+check("pieces counts the board the player solves", not bad_pieces, str(bad_pieces[:3]))
 
 print("\n=== 2. solutions are real, playable lines ===")
 bad_solution, checked = [], 0
@@ -138,6 +145,15 @@ ok_any = all(("underPromotion" in q["themes"] or "enPassant" in q["themes"])
              for q in any_mode["puzzles"])
 check("themesMode=any returns puzzles carrying at least one", ok_any)
 
+crowded, miscounted = [], []
+for i in range(20):
+    _, p, _ = get("/v1/puzzles/random?themes=fork&maxPieces=10")
+    if p["pieces"] > 10: crowded.append((p["id"], p["pieces"]))
+    if len(chess.Board(p["positionFen"]).piece_map()) != p["pieces"]:
+        miscounted.append(p["id"])
+check("maxPieces is a ceiling, not a suggestion (20 draws)", not crowded, str(crowded[:3]))
+check("and the count it filters on is the real one", not miscounted, str(miscounted[:3]))
+
 print("\n=== 5. randomness is real ===")
 ids = []
 for i in range(60):
@@ -157,6 +173,8 @@ for path, expect, label in [
     ("/v1/puzzles/random?typo=1", 400, "unknown parameter"),
     ("/v1/puzzles/random?count=99", 400, "count over the cap"),
     ("/v1/puzzles/random?rating=9999", 400, "rating out of range"),
+    ("/v1/puzzles/random?maxPieces=1", 400, "maxPieces below two kings"),
+    ("/v1/puzzles/random?maxPieces=2", 404, "maxPieces nothing can meet"),
     ("/v1/puzzles/random?ratingMin=3900&ratingMax=4000", 404, "filter matches nothing"),
     ("/v1/puzzles/notanid", 404, "unknown puzzle id"),
 ]:
@@ -175,6 +193,9 @@ check("MCP omits the solution too", "solution" not in json.dumps(mcp_p).lower())
 mcp_s = rpc("tools/call", {"name": "get_solution", "arguments": {"puzzle_id": "00008"}})["result"]["structuredContent"]
 _, http_s, _ = get("/v1/puzzles/00008/solution")
 check("MCP and HTTP give the same solution", mcp_s["solution_san"] == http_s["solutionSan"])
+mcp_themes = rpc("tools/call", {"name": "list_themes", "arguments": {}})["result"]["structuredContent"]
+check("MCP themes carry descriptions",
+      all(t.get("description") for t in mcp_themes["themes"]))
 
 print("\n=== 8. consistency across endpoints ===")
 _, health, _ = get("/health")
@@ -188,12 +209,23 @@ check("every theme has at least one puzzle",
       all(t["puzzleCount"] > 0 for t in themes["themes"]))
 check("rating distribution sums to the total",
       sum(b["count"] for b in stats["ratingDistribution"]) == stats["puzzles"])
+check("health reports the schema this binary expects",
+      health["status"] == "ok" and health["schemaVersion"] == health["expectedSchemaVersion"],
+      str(health))
+check("every theme says what it means",
+      all(t.get("description") for t in themes["themes"]))
+check("provenance figures are numbers",
+      all(isinstance(stats["source"].get(k), int)
+          for k in ("sourceRows", "minPopularity", "minPlays")), str(stats["source"]))
 
 print("\n=== 9. rate limiting and headers ===")
 _, _, h = get("/v1/puzzles/random")
 check("X-RateLimit headers present", all(k in h for k in
       ("x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset")))
-check("the key's higher limit is in effect", h["x-ratelimit-limit"] == "3000")
+_, _, anon = get("/v1/themes", key=False)
+check("the key's higher limit is in effect",
+      int(h["x-ratelimit-limit"]) > int(anon["x-ratelimit-limit"]),
+      f'{h["x-ratelimit-limit"]} vs anonymous {anon["x-ratelimit-limit"]}')
 check("scope reports the key", h["x-ratelimit-scope"] == "key")
 try:
     urllib.request.urlopen(urllib.request.Request(
@@ -203,7 +235,7 @@ except urllib.error.HTTPError as e:
     check("an invalid key is rejected with 401", e.code == 401)
 
 print("\n=== 10. discovery surfaces ===")
-for path, needle in [("/", "chess-puzzle-api"), ("/llms.txt", "BEFORE the opponent"),
+for path, needle in [("/", "1000–1399"), ("/llms.txt", "BEFORE the opponent"),
                      ("/docs", "<script"), ("/openapi.json", "openapi")]:
     req = urllib.request.Request(BASE + path)
     req.add_header("Authorization", f"Bearer {KEY}")

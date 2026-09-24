@@ -89,18 +89,6 @@ puzzle-sheets costs 25 requests today; batches would make it three.
 30/min anonymous was a guess and has never met real traffic. `/v1/usage` will
 show whether it is too tight before anyone complains.
 
-### 11. Bring the verification script up to date
-
-`scripts/verify_production.py` predates `pieces`, `maxPieces` and the theme
-descriptions, and the keys it used are revoked. It should re-derive the piece
-count with python-chess like every other chess claim.
-
-### 12. Maintenance window
-
-`/data/probe.bin`, an empty file left by an upload test, goes the next time
-the machine is down for something else; removing it costs the two minutes of
-downtime described under Operating in the README.
-
 ---
 
 ## Not doing, and why
