@@ -8,33 +8,6 @@ Items needing Mauri's own accounts cannot be done unattended; they are marked
 
 ---
 
-## 0 · Next up: the trainer
-
-The landing page is the one place a person meets this service without writing
-code. These make it quicker to use.
-
-### 1. Chips instead of dropdowns
-
-Level and theme as buttons that are always visible, so choosing is one click
-and the options are seen without opening anything. Twenty-odd themes need to
-wrap gracefully on a phone.
-
-### 2. A random button
-
-After picking a level, one button that fills in the rest — a theme at random —
-and loads a puzzle. For someone who does not know what "zugzwang" means yet,
-it is the way in.
-
-### 3. Old game or recent game
-
-Say where a puzzle comes from in time. One thing to know first: every puzzle
-comes from a game played on Lichess, so the oldest is from 2013; the classics
-of chess history are not in the dataset. What can be shown is the game's date,
-fetched from Lichess by its id, and whether it was played by titled players,
-which the `master`, `masterVsMaster` and `superGM` themes already record.
-
----
-
 ## 1 · Discoverability: people
 
 The honest diagnosis, measured on the live page: **267 indexable words and 3
@@ -43,18 +16,18 @@ structured data. Three million puzzles behind a single page.
 
 The problem is not missing meta tags. It is that there are no pages.
 
-### 4. The basics
+### 1. The basics
 
 `robots.txt`, `sitemap.xml`, a favicon, `<link rel="canonical">`, Open Graph
 and Twitter card tags, and schema.org structured data describing the site as a
 free tool. Half a day, and it stops a shared link from previewing as nothing.
 
-### 5. A static social preview image
+### 2. A static social preview image
 
 Sharing a link today shows a blank card. One fixed design — a board and the
 site name — captures most of the benefit for very little work.
 
-### 6. Landing pages per theme and level
+### 3. Landing pages per theme and level
 
 The real search play: roughly 50–350 pages ("Fork puzzles", "Mate in two for
 beginners"), each with a working board and actual prose explaining the motif.
@@ -63,12 +36,12 @@ The theme descriptions now served by `/v1/themes` are a start on that prose.
 **Do not** generate a page per puzzle. Three million thin pages is what search
 engines classify as spam, and the penalty lands on the whole domain.
 
-### 7. Shareable puzzle URLs — `/puzzle/{id}`
+### 4. Shareable puzzle URLs — `/puzzle/{id}`
 
 So a person can send someone a specific position. Worth having for sharing
 even with most of them `noindex`; weak as a search strategy on its own.
 
-### 8. Per-puzzle preview images
+### 5. Per-puzzle preview images
 
 Each shared puzzle previewing as its own position. Much stronger on social,
 but X and Facebook do not accept SVG, so this means rasterising to PNG on the
@@ -82,14 +55,14 @@ Worth it only once sharing is actually happening.
 Search engines are the wrong instrument here. Agents do not crawl — they read
 registries. `/llms.txt` and `/mcp` already exist and nothing points at them.
 
-### 9. Submit to the MCP registries — **[needs you]**
+### 6. Submit to the MCP registries — **[needs you]**
 
 The official Model Context Protocol registry, plus Smithery, Glama, mcp.so and
 PulseMCP. Mostly a form or a pull request; each needs an account. This is
 paperwork, not engineering, and it is the single highest-leverage thing for
 agent reach. puzzle-sheets has an MCP server of its own worth listing too.
 
-### 10. Submit the API to the usual lists
+### 7. Submit the API to the usual lists
 
 `public-apis` on GitHub, APIs.guru for the OpenAPI document, the Postman public
 network. A Show HN and a post to r/chess and the Lichess forum are the human
@@ -99,30 +72,30 @@ equivalent.
 
 ## 3 · Later
 
-### 11. A playable board
+### 8. A playable board
 
 Letting the visitor move the pieces and be told whether they are right, instead
 of only revealing the answer. It needs legal-move generation in the browser and
 handling the opponent's replies. Worth doing once there is evidence people are
 using the trainer.
 
-### 12. Look puzzles up in batches
+### 9. Look puzzles up in batches
 
 `GET /v1/puzzles?ids=` and the same for solutions. A twelve-puzzle sheet from
 puzzle-sheets costs 25 requests today; batches would make it three.
 
-### 13. Revisit the rate limit with real data
+### 10. Revisit the rate limit with real data
 
 30/min anonymous was a guess and has never met real traffic. `/v1/usage` will
 show whether it is too tight before anyone complains.
 
-### 14. Bring the verification script up to date
+### 11. Bring the verification script up to date
 
 `scripts/verify_production.py` predates `pieces`, `maxPieces` and the theme
 descriptions, and the keys it used are revoked. It should re-derive the piece
 count with python-chess like every other chess claim.
 
-### 15. Maintenance window
+### 12. Maintenance window
 
 `/data/probe.bin`, an empty file left by an upload test, goes the next time
 the machine is down for something else; removing it costs the two minutes of
