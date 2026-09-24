@@ -29,7 +29,7 @@ side to move in it.
 | `GET /v1/puzzles/random` | a random puzzle, without the answer |
 | `GET /v1/puzzles/{id}` | a specific puzzle, still without the answer |
 | `GET /v1/puzzles/{id}/solution` | the answer |
-| `GET /v1/themes` | every valid theme name and its puzzle count |
+| `GET /v1/themes` | every valid theme, its puzzle count and what it means |
 | `GET /v1/stats` | dataset size, rating spread, provenance |
 | `GET /v1/usage` | how much this service is being used |
 | `POST /mcp` | the same operations as MCP tools, for agents |
@@ -107,8 +107,8 @@ model need not decode a FEN.
 
 ## Rate limits
 
-30 requests a minute per IP. A key raises that — open an issue saying what you
-are building. Responses carry `X-RateLimit-Remaining`; a `429` carries
+30 requests a minute per IP by default (`ANONYMOUS_LIMIT`). A key raises that —
+open an issue saying what you are building. Responses carry `X-RateLimit-Remaining`; a `429` carries
 `Retry-After` in seconds.
 
 ```bash
@@ -128,8 +128,9 @@ does: the rarest requested theme drives a range scan over a covering index
 that also carries the rating and the piece count, a row is picked at a random
 offset, and a 128-bit theme mask on the row checks whatever the scan could not
 (a second required theme, an excluded one). A rejection just retries. Filtered
-requests land in a few milliseconds of server time, and the server reads its
-indexes into the page cache when it starts so the first requests do too.
+requests land in a few milliseconds of server time. No query may run longer
+than five seconds: past that it is stopped and the caller gets a `503` with a
+hint, so one expensive search cannot hold a connection hostage.
 
 ## What changes from the Lichess dump
 
@@ -180,6 +181,39 @@ download.
 `scripts/verify_production.py` checks a running deployment end to end — it
 re-derives every chess claim with python-chess, a separate implementation, so
 agreement between the two means something.
+
+## Operating
+
+What the production deployment on Fly has taught, for whoever runs it next.
+
+**Rebuilding the database** — needed whenever `SCHEMA_VERSION` changes.
+`/health` says `schema_mismatch` while the loaded file is older than the
+binary; the service keeps answering, but queries that need the new schema
+fail until the rebuild.
+
+1. Deploy the new binary, still pointing `PUZZLES_DB` at the current file.
+2. Build the new file on the machine, next to the old one. Uploading one from
+   a laptop does not work: `fly ssh sftp put` drops large transfers.
+   ```bash
+   fly ssh console -C "/usr/local/bin/chess-puzzle-api import --output /data/puzzles-v5.db --cache /data/lichess_db_puzzle.csv.zst --force --no-vacuum"
+   ```
+   `--no-vacuum` because `VACUUM` needs more memory than the machine has. On
+   a shared CPU the import takes about ten minutes and spends its burst
+   credit, so queries are slow for a while afterwards.
+3. Point `PUZZLES_DB` in `fly.toml` at the new file and deploy.
+4. Check `/health` for `"status":"ok"`.
+
+**Deleting files from the volume.** The image has no shell and `sftp` has no
+`rm`, so run `rm` from a throwaway image on the same machine, then redeploy.
+The service is down in between, about two minutes; back up `api.db` and
+`api.db-wal` first, since the keys cannot be recovered.
+```bash
+fly machine update <machine-id> --image busybox:stable --entrypoint "rm -v /data/<file>" --restart no --skip-health-checks --yes
+fly deploy
+```
+
+**After a restart** the page cache is cold and the first requests read from
+disk: a few seconds each until the indexes they touch are cached.
 
 ## Feedback
 
