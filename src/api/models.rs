@@ -123,6 +123,9 @@ impl SolutionResponse {
 pub struct ThemeResponse {
     pub name: String,
     pub puzzle_count: i64,
+    /// What the theme means, in a sentence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<&'static str>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -130,8 +133,7 @@ pub struct ThemeResponse {
 pub struct ThemesResponse {
     pub count: usize,
     pub themes: Vec<ThemeResponse>,
-    /// Lichess documents what each theme means; duplicating their wording here
-    /// would mean copying strings from a differently licensed project.
+    /// Lichess's own page on the themes, for more than a sentence.
     pub documentation: &'static str,
 }
 
@@ -163,19 +165,29 @@ pub struct Source {
     pub license: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<String>,
+    /// Rows in the dump before curation.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_rows: Option<String>,
+    pub source_rows: Option<i64>,
+    /// The curation floors a puzzle had to meet.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_popularity: Option<String>,
+    pub min_popularity: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_plays: Option<String>,
+    pub min_plays: Option<i64>,
 }
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthResponse {
+    /// `ok`, or `schema_mismatch` when the database was built for a different
+    /// schema than this binary expects and needs rebuilding. The service still
+    /// answers either way, so a deploy that precedes its re-import succeeds.
     pub status: &'static str,
     pub puzzles: i64,
+    /// The schema the loaded database was built with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<u32>,
+    /// The schema this binary expects.
+    pub expected_schema_version: u32,
 }
 
 #[derive(Serialize, ToSchema)]

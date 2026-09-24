@@ -59,7 +59,10 @@ pub fn router(sampler: SharedState, auth: Arc<AuthState>, mcp_allowed_hosts: &[S
         .route("/health", get(handlers::health))
         .route("/openapi.json", get(handlers::openapi))
         .route("/docs", get(handlers::docs))
-        .with_state(sampler);
+        .with_state(Arc::new(handlers::Site {
+            sampler,
+            anonymous_limit: auth.anonymous_limit(),
+        }));
 
     // Read-only and public, so any origin may call it from a browser.
     let cors = CorsLayer::new()

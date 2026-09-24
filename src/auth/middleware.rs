@@ -53,6 +53,10 @@ impl AuthState {
         self.store.flush_stats(&requests, &filters)
     }
 
+    pub fn anonymous_limit(&self) -> u32 {
+        self.anonymous_limit
+    }
+
     /// Forgets rate-limit windows for callers that have gone away.
     pub fn prune(&self) {
         self.limiter.prune();

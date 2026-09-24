@@ -6,8 +6,9 @@ use crate::api::query::{
     DEFAULT_TOLERANCE, PIECES_CEILING, PIECES_FLOOR, PuzzleFilter, PuzzleRow, RATING_CEILING,
     RATING_FLOOR, Sampler, ThemesMode, band_around,
 };
+use crate::api::theme_descriptions;
 use crate::auth::keys::KeyStore;
-use crate::db::meta_keys;
+use crate::db::{SCHEMA_VERSION, meta_keys};
 use crate::usage::{self, FilterSample};
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -294,6 +295,7 @@ fn describe(filter: &PuzzleFilter) -> String {
         (status = 400, description = "A parameter was invalid or unrecognised", body = ErrorBody),
         (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
+        (status = 503, description = "The search ran past the query timeout and was stopped", body = ErrorBody),
     )
 )]
 pub async fn random(
@@ -405,7 +407,7 @@ pub async fn solution(
     path = "/v1/themes",
     tag = "reference",
     responses(
-        (status = 200, description = "Every theme, with how many puzzles carry it", body = ThemesResponse),
+        (status = 200, description = "Every theme, with how many puzzles carry it and what it means", body = ThemesResponse),
         (status = 401, description = "The API key is unknown or revoked", body = ErrorBody),
         (status = 429, description = "Rate limit exceeded", body = ErrorBody),
     )
@@ -418,6 +420,7 @@ pub async fn themes(State(sampler): State<SharedState>) -> Json<ThemesResponse> 
         .map(|theme| ThemeResponse {
             name: theme.name.clone(),
             puzzle_count: theme.puzzle_count,
+            description: theme_descriptions::description(&theme.name),
         })
         .collect();
 
@@ -444,6 +447,7 @@ pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsRe
         blocking(move || sampler.stats()).await?
     };
     let meta = |key: &str| stats.meta.get(key).cloned();
+    let number = |key: &str| meta(key).and_then(|value| value.parse().ok());
 
     Ok(Json(StatsResponse {
         puzzles: stats.puzzles,
@@ -465,9 +469,9 @@ pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsRe
             url: "https://database.lichess.org/#puzzles",
             license: "CC0 1.0",
             imported_at: meta(meta_keys::IMPORTED_AT),
-            source_rows: meta(meta_keys::ROWS_READ),
-            min_popularity: meta(meta_keys::MIN_POPULARITY),
-            min_plays: meta(meta_keys::MIN_PLAYS),
+            source_rows: number(meta_keys::ROWS_READ),
+            min_popularity: number(meta_keys::MIN_POPULARITY),
+            min_plays: number(meta_keys::MIN_PLAYS),
         },
     }))
 }
@@ -478,10 +482,18 @@ pub async fn stats(State(sampler): State<SharedState>) -> ApiResult<Json<StatsRe
     tag = "reference",
     responses((status = 200, description = "The service is up and the dataset is loaded", body = HealthResponse))
 )]
-pub async fn health(State(sampler): State<SharedState>) -> Json<HealthResponse> {
+pub async fn health(State(site): State<SiteState>) -> Json<HealthResponse> {
+    let sampler = &site.sampler;
+    let schema_version = sampler.catalog.schema_version;
     Json(HealthResponse {
-        status: "ok",
+        status: if schema_version == Some(SCHEMA_VERSION) {
+            "ok"
+        } else {
+            "schema_mismatch"
+        },
         puzzles: sampler.total_puzzles(),
+        schema_version,
+        expected_schema_version: SCHEMA_VERSION,
     })
 }
 
@@ -511,27 +523,38 @@ fn base_url(headers: &HeaderMap) -> String {
     format!("{scheme}://{host}")
 }
 
-fn site_facts(sampler: &Sampler, headers: &HeaderMap) -> SiteFacts {
+/// What the public pages need: the dataset, and the configured limit they
+/// quote so the pages cannot disagree with the service.
+pub struct Site {
+    pub sampler: SharedState,
+    pub anonymous_limit: u32,
+}
+
+pub type SiteState = Arc<Site>;
+
+fn site_facts(site: &Site, headers: &HeaderMap) -> SiteFacts {
     SiteFacts {
-        puzzles: sampler.total_puzzles(),
-        themes: sampler.catalog.len(),
+        puzzles: site.sampler.total_puzzles(),
+        themes: site.sampler.catalog.len(),
         base_url: base_url(headers),
+        anonymous_limit: site.anonymous_limit,
+        max_count: MAX_COUNT,
     }
 }
 
 /// What a person sees when they paste the bare domain into a browser.
-pub async fn landing(State(sampler): State<SharedState>, headers: HeaderMap) -> Html<String> {
-    Html(pages::landing(&site_facts(&sampler, &headers)))
+pub async fn landing(State(site): State<SiteState>, headers: HeaderMap) -> Html<String> {
+    Html(pages::landing(&site_facts(&site, &headers)))
 }
 
 /// The llms.txt convention: what this API is, in plain text.
 pub async fn llms_txt(
-    State(sampler): State<SharedState>,
+    State(site): State<SiteState>,
     headers: HeaderMap,
 ) -> ([(HeaderName, &'static str); 1], String) {
     (
         [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
-        pages::llms_txt(&site_facts(&sampler, &headers)),
+        pages::llms_txt(&site_facts(&site, &headers)),
     )
 }
 

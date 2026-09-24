@@ -10,8 +10,9 @@
 use crate::api::catalog::Catalog;
 use crate::api::query::{
     DEFAULT_TOLERANCE, PIECES_CEILING, PIECES_FLOOR, PuzzleFilter, PuzzleRow, Sampler, ThemesMode,
-    band_around,
+    band_around, is_timeout,
 };
+use crate::api::theme_descriptions;
 use crate::chess;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{ErrorData, Implementation, ServerCapabilities, ServerConfig};
@@ -97,6 +98,8 @@ pub struct McpSolution {
 pub struct McpTheme {
     pub name: String,
     pub puzzle_count: i64,
+    /// What the theme means, in a sentence.
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -120,6 +123,13 @@ fn invalid(message: impl Into<String>) -> ErrorData {
 }
 
 fn internal(error: anyhow::Error) -> ErrorData {
+    if is_timeout(&error) {
+        tracing::warn!("mcp query stopped by the timeout: {error:#}");
+        return ErrorData::internal_error(
+            "That search took too long and was stopped. Narrow the rating range or drop a theme.",
+            None,
+        );
+    }
     tracing::error!("mcp tool failed: {error:#}");
     ErrorData::internal_error("The puzzle service failed to answer.", None)
 }
@@ -286,7 +296,7 @@ impl PuzzleTools {
     #[tool(
         name = "list_themes",
         description = "List every tactical theme that can be used to filter puzzles, with how \
-                       many puzzles carry each. Call this before guessing a theme name: names \
+                       many puzzles carry each and what it means. Call this before guessing a theme name: names \
                        are exact, and an unknown one is an error rather than an empty result."
     )]
     async fn list_themes(&self) -> Result<Json<McpThemes>, ErrorData> {
@@ -298,6 +308,7 @@ impl PuzzleTools {
             .map(|theme| McpTheme {
                 name: theme.name.clone(),
                 puzzle_count: theme.puzzle_count,
+                description: theme_descriptions::description(&theme.name).map(str::to_string),
             })
             .collect();
 

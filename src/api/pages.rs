@@ -9,6 +9,8 @@ pub struct SiteFacts {
     pub puzzles: i64,
     pub themes: usize,
     pub base_url: String,
+    pub anonymous_limit: u32,
+    pub max_count: usize,
 }
 
 /// The page lives in its own file rather than a `format!` string: it carries
@@ -20,6 +22,7 @@ pub fn landing(facts: &SiteFacts) -> String {
     LANDING
         .replace("__PUZZLES__", &thousands(facts.puzzles))
         .replace("__BASE__", &facts.base_url)
+        .replace("__LIMIT__", &facts.anonymous_limit.to_string())
 }
 
 /// Follows the llms.txt convention: an H1, a blockquote summary, then linked
@@ -30,6 +33,8 @@ pub fn llms_txt(facts: &SiteFacts) -> String {
         puzzles,
         themes,
         base_url,
+        anonymous_limit,
+        max_count,
     } = facts;
     let puzzles = thousands(*puzzles);
 
@@ -57,10 +62,10 @@ player without leaking what they are meant to find.
 
 ## Endpoints
 
-- [{base_url}/v1/puzzles/random]({base_url}/v1/puzzles/random): a random puzzle. Filter with `rating` and `tolerance`, or `ratingMin`/`ratingMax`; `themes` (comma separated) with `themesMode=all|any`; `excludeThemes`; `opening`; `maxPieces` to limit the pieces on the board; `count` for up to 50 at once; `board=true`.
+- [{base_url}/v1/puzzles/random]({base_url}/v1/puzzles/random): a random puzzle. Filter with `rating` and `tolerance`, or `ratingMin`/`ratingMax`; `themes` (comma separated) with `themesMode=all|any`; `excludeThemes`; `opening`; `maxPieces` to limit the pieces on the board; `count` for up to {max_count} at once; `board=true`.
 - [{base_url}/v1/puzzles/{{id}}]({base_url}/v1/puzzles/00008): one puzzle by id, still without its solution.
 - [{base_url}/v1/puzzles/{{id}}/solution]({base_url}/v1/puzzles/00008/solution): the answer, in UCI and SAN.
-- [{base_url}/v1/themes]({base_url}/v1/themes): every valid theme name with its puzzle count. Read this before guessing a theme; an unknown name is a 400, not an empty result.
+- [{base_url}/v1/themes]({base_url}/v1/themes): every valid theme name, its puzzle count and what it means. Read this before guessing a theme; an unknown name is a 400, not an empty result.
 - [{base_url}/v1/stats]({base_url}/v1/stats): dataset size, rating distribution and provenance.
 - [{base_url}/v1/usage]({base_url}/v1/usage): aggregate usage of this service.
 
@@ -73,7 +78,7 @@ player without leaking what they are meant to find.
 
 ## Limits
 
-30 requests per minute per IP without a key. Responses carry
+{anonymous_limit} requests per minute per IP without a key. Responses carry
 `X-RateLimit-Remaining`; a 429 carries `Retry-After` in seconds. Back off
 rather than retrying immediately.
 
@@ -117,6 +122,8 @@ mod tests {
             puzzles: 3_128_032,
             themes: 73,
             base_url: "https://example.org".to_string(),
+            anonymous_limit: 30,
+            max_count: 50,
         }
     }
 

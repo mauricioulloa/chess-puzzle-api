@@ -11,6 +11,7 @@
 //! endpoint publishable rather than something that has to be protected.
 
 use crate::api::models::{DailyTally, PopularFilters, Tally, UsageResponse, UsageTotals};
+use crate::api::query::RATING_BAND_WIDTH;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -74,8 +75,8 @@ pub struct FilterSample {
 /// Buckets a requested rating for reporting. The exact number asked for is
 /// noise; the band is the thing anyone wants to see.
 pub fn rating_band(rating: i64) -> String {
-    let floor = (rating / 200) * 200;
-    format!("{floor}-{}", floor + 199)
+    let floor = (rating / RATING_BAND_WIDTH) * RATING_BAND_WIDTH;
+    format!("{floor}-{}", floor + RATING_BAND_WIDTH - 1)
 }
 
 /// How far back the public report reaches.

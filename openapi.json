@@ -189,6 +189,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The search ran past the query timeout and was stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -392,7 +402,7 @@
         "operationId": "themes",
         "responses": {
           "200": {
-            "description": "Every theme, with how many puzzles carry it",
+            "description": "Every theme, with how many puzzles carry it and what it means",
             "content": {
               "application/json": {
                 "schema": {
@@ -517,15 +527,32 @@
         "type": "object",
         "required": [
           "status",
-          "puzzles"
+          "puzzles",
+          "expectedSchemaVersion"
         ],
         "properties": {
+          "expectedSchemaVersion": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The schema this binary expects.",
+            "minimum": 0
+          },
           "puzzles": {
             "type": "integer",
             "format": "int64"
           },
+          "schemaVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The schema the loaded database was built with.",
+            "minimum": 0
+          },
           "status": {
-            "type": "string"
+            "type": "string",
+            "description": "`ok`, or `schema_mismatch` when the database was built for a different\nschema than this binary expects and needs rebuilding. The service still\nanswers either way, so a deploy that precedes its re-import succeeds."
           }
         }
       },
@@ -739,24 +766,29 @@
           },
           "minPlays": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64"
           },
           "minPopularity": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64",
+            "description": "The curation floors a puzzle had to meet."
           },
           "name": {
             "type": "string"
           },
           "sourceRows": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64",
+            "description": "Rows in the dump before curation."
           },
           "url": {
             "type": "string"
@@ -829,6 +861,13 @@
           "puzzleCount"
         ],
         "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the theme means, in a sentence."
+          },
           "name": {
             "type": "string"
           },
@@ -852,7 +891,7 @@
           },
           "documentation": {
             "type": "string",
-            "description": "Lichess documents what each theme means; duplicating their wording here\nwould mean copying strings from a differently licensed project."
+            "description": "Lichess's own page on the themes, for more than a sentence."
           },
           "themes": {
             "type": "array",

@@ -31,6 +31,18 @@ pub fn fixture_sampler() -> (TempDir, Arc<Sampler>) {
     )
     .expect("import");
     load::finalise(&conn, false).expect("finalise");
+    // What `import` records alongside the data.
+    for (key, value) in [
+        (
+            db::meta_keys::SCHEMA_VERSION,
+            db::SCHEMA_VERSION.to_string(),
+        ),
+        (db::meta_keys::ROWS_READ, "20".to_string()),
+        (db::meta_keys::MIN_POPULARITY, "90".to_string()),
+        (db::meta_keys::MIN_PLAYS, "100".to_string()),
+    ] {
+        db::set_meta(&conn, key, &value).expect("meta");
+    }
     drop(conn);
 
     let pool = db::pool::open_read_only(&path, 2).expect("read pool");

@@ -20,7 +20,7 @@ pub mod meta_keys {
     pub const SCHEMA_VERSION: &str = "schema_version";
 }
 
-pub const SCHEMA_VERSION: &str = "4";
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Opens a connection tuned for the bulk import: durability is pointless here
 /// because a failed import is thrown away and re-run from the source dump.

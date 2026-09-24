@@ -1,3 +1,4 @@
+use crate::api::query::{QUERY_TIMEOUT, is_timeout};
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,6 +18,8 @@ pub enum ApiError {
         retry_after: u64,
         limit: u32,
     },
+    /// A query ran past the timeout and was stopped.
+    Timeout,
     Internal(anyhow::Error),
 }
 
@@ -73,6 +76,15 @@ impl IntoResponse for ApiError {
                 }
                 return response;
             }
+            ApiError::Timeout => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "timeout",
+                format!(
+                    "That search took longer than {}s and was stopped.",
+                    QUERY_TIMEOUT.as_secs()
+                ),
+                Some("Narrow the rating range or drop a filter, then try again.".to_string()),
+            ),
             ApiError::Internal(err) => {
                 tracing::error!("unhandled error: {err:#}");
                 (
@@ -98,6 +110,10 @@ impl IntoResponse for ApiError {
 
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
+        if is_timeout(&err) {
+            tracing::warn!("query stopped by the timeout: {err:#}");
+            return ApiError::Timeout;
+        }
         ApiError::Internal(err)
     }
 }

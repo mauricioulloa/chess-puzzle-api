@@ -10,7 +10,7 @@
 //! to keep it. A rejection just tries again.
 
 use crate::api::catalog::Catalog;
-use crate::db::pool::SqlitePool;
+use crate::db::pool::{PooledConnection, SqlitePool};
 use crate::import::parse::{GameRef, ThemeMask};
 use anyhow::{Context, Result};
 use rand::RngExt;
@@ -18,6 +18,44 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
+use std::time::{Duration, Instant};
+
+/// The longest a request may spend in SQLite. The blocking work does not stop
+/// when a client gives up, so without a bound one expensive query holds a
+/// pooled connection, and the requests queued behind it, until it finishes.
+pub const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How many SQLite virtual-machine steps pass between deadline checks.
+const PROGRESS_STEPS: i32 = 10_000;
+
+/// A pooled connection with the query timeout armed; disarmed on return to
+/// the pool so the next borrower starts with its own deadline.
+struct TimedConnection(PooledConnection);
+
+impl std::ops::Deref for TimedConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.0
+    }
+}
+
+impl Drop for TimedConnection {
+    fn drop(&mut self) {
+        let _ = self.0.progress_handler(0, None::<fn() -> bool>);
+    }
+}
+
+/// True when a query was stopped by [`QUERY_TIMEOUT`].
+pub fn is_timeout(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<rusqlite::Error>(),
+            Some(rusqlite::Error::SqliteFailure(failure, _))
+                if failure.code == rusqlite::ErrorCode::OperationInterrupted
+        )
+    })
+}
 
 /// How many rejections to tolerate before falling back to an exact query.
 /// Generous, because each attempt costs about a millisecond.
@@ -26,6 +64,8 @@ const MAX_ATTEMPTS: usize = 32;
 pub const RATING_FLOOR: i64 = 0;
 pub const RATING_CEILING: i64 = 4000;
 pub const DEFAULT_TOLERANCE: i64 = 100;
+/// Width of the rating bands in `/v1/stats` and the usage report.
+pub const RATING_BAND_WIDTH: i64 = 200;
 /// Two kings is the emptiest legal board; 32 is the full starting set.
 pub const PIECES_FLOOR: u32 = 2;
 pub const PIECES_CEILING: u32 = 32;
@@ -239,30 +279,21 @@ impl Sampler {
         }
     }
 
-    /// Reads both sampling indexes once, so the first requests after a
-    /// restart find them in the page cache instead of on disk. They are a
-    /// fraction of the file and fit in memory; the rows they point at are
-    /// fetched a dozen at a time and do not need warming.
-    pub fn warm_up(&self) -> Result<std::time::Duration> {
-        let started = std::time::Instant::now();
-        let conn = self.connection()?;
-        // A bare count walks every page without decoding the rows, which
-        // is all the page cache needs and a fifth of the CPU.
-        for sql in [
-            "SELECT COUNT(*) FROM puzzle_themes",
-            "SELECT COUNT(*) FROM puzzles INDEXED BY idx_puzzles_rating",
-        ] {
-            conn.query_row(sql, [], |row| row.get::<_, i64>(0))
-                .with_context(|| format!("warming with `{sql}`"))?;
-        }
-        Ok(started.elapsed())
-    }
-
     pub fn total_puzzles(&self) -> i64 {
         self.catalog.puzzle_count
     }
 
-    fn connection(&self) -> Result<crate::db::pool::PooledConnection> {
+    /// A pooled connection that interrupts any query running past
+    /// [`QUERY_TIMEOUT`].
+    fn connection(&self) -> Result<TimedConnection> {
+        let conn = self.untimed_connection()?;
+        let deadline = Instant::now() + QUERY_TIMEOUT;
+        conn.progress_handler(PROGRESS_STEPS, Some(move || Instant::now() > deadline))
+            .context("arming the query timeout")?;
+        Ok(TimedConnection(conn))
+    }
+
+    fn untimed_connection(&self) -> Result<PooledConnection> {
         self.pool.get().context("acquiring a database connection")
     }
 
@@ -600,8 +631,11 @@ impl Sampler {
         Ok(self.stats.get_or_init(|| computed).clone())
     }
 
+    /// Runs once per process and scans the whole table, so it is exempt
+    /// from the query timeout: on a slow machine it can outlast it, and the
+    /// answer is cached for good once it lands.
     fn compute_stats(&self) -> Result<DatasetStats> {
-        let conn = self.connection()?;
+        let conn = self.untimed_connection()?;
 
         let openings: i64 = conn
             .query_row("SELECT COUNT(*) FROM openings", [], |row| row.get(0))
@@ -613,15 +647,15 @@ impl Sampler {
             .context("rating bounds")?;
 
         let mut statement = conn
-            .prepare(
-                "SELECT rating / 200 * 200 AS band, COUNT(*)
-                 FROM puzzles GROUP BY band ORDER BY band",
-            )
+            .prepare(&format!(
+                "SELECT rating / {RATING_BAND_WIDTH} * {RATING_BAND_WIDTH} AS band, COUNT(*)
+                     FROM puzzles GROUP BY band ORDER BY band"
+            ))
             .context("preparing distribution query")?;
         let bands = statement
             .query_map([], |row| {
                 let from: i64 = row.get(0)?;
-                Ok((from, from + 199, row.get(1)?))
+                Ok((from, from + RATING_BAND_WIDTH - 1, row.get(1)?))
             })
             .context("reading distribution")?
             .collect::<rusqlite::Result<Vec<_>>>()
@@ -649,5 +683,33 @@ impl Sampler {
             bands,
             meta,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_interrupted_query_is_recognised_as_a_timeout() {
+        let conn = Connection::open_in_memory().expect("connection");
+        conn.progress_handler(PROGRESS_STEPS, Some(|| true))
+            .expect("handler");
+        let err = conn
+            .query_row(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n)
+                 SELECT COUNT(*) FROM n",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .context("counting forever")
+            .expect_err("the handler stops it");
+        assert!(is_timeout(&err));
+
+        let other = conn
+            .query_row("SELECT * FROM missing", [], |row| row.get::<_, i64>(0))
+            .context("a plain failure")
+            .expect_err("no such table");
+        assert!(!is_timeout(&other));
     }
 }

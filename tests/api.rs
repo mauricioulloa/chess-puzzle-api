@@ -503,3 +503,39 @@ fn a_theme_with_no_candidates_matches_nothing() {
         assert!(sampler.random(&filter, 3).expect("sample").is_empty());
     }
 }
+
+#[tokio::test]
+async fn health_reports_the_schema_it_serves() {
+    let (_dir, sampler) = fixture_sampler();
+    let (status, body) = get(sampler, "/health").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["schemaVersion"], body["expectedSchemaVersion"]);
+}
+
+#[tokio::test]
+async fn themes_say_what_they_mean() {
+    let (_dir, sampler) = fixture_sampler();
+    let (_, body) = get(sampler, "/v1/themes").await;
+    let fork = body["themes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|theme| theme["name"] == "fork")
+        .expect("fork is in the fixture");
+    assert!(
+        fork["description"]
+            .as_str()
+            .unwrap()
+            .contains("two or more")
+    );
+}
+
+#[tokio::test]
+async fn provenance_numbers_are_numbers() {
+    let (_dir, sampler) = fixture_sampler();
+    let (_, body) = get(sampler, "/v1/stats").await;
+    assert_eq!(body["source"]["minPopularity"], 90);
+    assert_eq!(body["source"]["minPlays"], 100);
+    assert!(body["source"]["sourceRows"].is_number());
+}

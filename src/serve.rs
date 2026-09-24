@@ -3,7 +3,7 @@ use crate::api::query::Sampler;
 use crate::api::routes;
 use crate::auth::keys::KeyStore;
 use crate::auth::middleware::AuthState;
-use crate::db::pool;
+use crate::db::{self, pool};
 use anyhow::{Context, Result};
 use clap::Args;
 use std::net::SocketAddr;
@@ -75,6 +75,18 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         catalog.len(),
         args.db.display()
     );
+    // Serving on regardless is deliberate: a schema change is deployed before
+    // the database is rebuilt on the machine, so refusing to start would take
+    // the service down. /health reports the mismatch until the re-import.
+    if catalog.schema_version != Some(db::SCHEMA_VERSION) {
+        tracing::error!(
+            "{} was built with schema {:?}, this binary expects {}; queries that need the \
+             newer schema will fail until it is rebuilt with `import`",
+            args.db.display(),
+            catalog.schema_version,
+            db::SCHEMA_VERSION
+        );
+    }
 
     let auth = Arc::new(AuthState::new(
         KeyStore::open(&args.api_db)?,
@@ -100,13 +112,6 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     tokio::spawn(maintenance(Arc::clone(&auth)));
 
     let sampler = Arc::new(Sampler::new(pool, catalog));
-    tokio::task::spawn_blocking({
-        let sampler = Arc::clone(&sampler);
-        move || match sampler.warm_up() {
-            Ok(elapsed) => tracing::info!("index pages cached in {:.1}s", elapsed.as_secs_f64()),
-            Err(err) => tracing::warn!("could not warm the page cache: {err:#}"),
-        }
-    });
     let app = routes::router(sampler, Arc::clone(&auth), &args.mcp_allowed_hosts);
 
     let listener = TcpListener::bind(&args.bind)

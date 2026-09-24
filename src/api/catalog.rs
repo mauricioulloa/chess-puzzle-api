@@ -7,7 +7,7 @@
 
 use crate::import::parse::ThemeMask;
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,8 @@ pub struct Catalog {
     by_name: HashMap<String, Theme>,
     ordered: Vec<Theme>,
     pub puzzle_count: i64,
+    /// The schema the database was built with, as its import recorded it.
+    pub schema_version: Option<u32>,
 }
 
 impl Catalog {
@@ -51,10 +53,21 @@ impl Catalog {
             .query_row("SELECT COUNT(*) FROM puzzles", [], |row| row.get(0))
             .context("counting puzzles")?;
 
+        let schema_version = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                (crate::db::meta_keys::SCHEMA_VERSION,),
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("reading the schema version")?
+            .and_then(|value| value.parse().ok());
+
         Ok(Self {
             by_name,
             ordered,
             puzzle_count,
+            schema_version,
         })
     }
 

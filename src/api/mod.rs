@@ -6,3 +6,4 @@ pub mod models;
 pub mod pages;
 pub mod query;
 pub mod routes;
+pub mod theme_descriptions;
