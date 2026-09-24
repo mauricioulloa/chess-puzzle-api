@@ -81,8 +81,8 @@ using the trainer.
 
 ### 9. Look puzzles up in batches
 
-`GET /v1/puzzles?ids=` and the same for solutions. A twelve-puzzle sheet from
-puzzle-sheets costs 25 requests today; batches would make it three.
+`GET /v1/puzzles?ids=` and the same for solutions, so a client printing a
+sheet of puzzles asks once instead of once per puzzle.
 
 ### 10. Revisit the rate limit with real data
 
