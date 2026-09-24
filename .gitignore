@@ -13,3 +13,6 @@
 # already existing elements were commented out
 
 #/target
+
+# The runbook for the live deployment stays local.
+OPERATING.md
