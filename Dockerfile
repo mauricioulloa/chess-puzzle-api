@@ -1,6 +1,6 @@
 # Build stage. Debian rather than Alpine on purpose: rusqlite's bundled SQLite
 # and the rustls crypto provider both compile C, and glibc keeps that boring.
-FROM rust:1.98-bookworm AS builder
+FROM rust:1.99-bookworm AS builder
 
 WORKDIR /build
 
